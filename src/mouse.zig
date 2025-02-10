@@ -10,3 +10,19 @@ pub fn isMouseInRect(rect: types.Recti32) bool {
     if (mouseX < rect.x + rect.width and mouseY < rect.y + rect.height) return true;
     return false;
 }
+
+pub fn isJustLeftClick() bool {
+    return (state.mouseLeftClick and !state.prevMouseLeftClick);
+}
+
+pub fn isJustRightClick() bool {
+    return (state.mouseRightClick and !state.prevMouseRightClick);
+}
+
+pub fn isLeftClickDown() bool {
+    return state.mouseLeftClick;
+}
+
+pub fn isRightClickDown() bool {
+    return state.mouseRightClick;
+}

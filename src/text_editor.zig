@@ -211,7 +211,7 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32, origin
     // TODO: Horizontal scrollbar handling
 
     // Handle scrollbar move before render
-    const scrollBarLaneY = types.Recti32{
+    const scrollBarTrackY = types.Recti32{
         .x = codeRect.x + codeRect.width - 10,
         .y = codeRect.y,
         .width = 10,
@@ -238,9 +238,9 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32, origin
         }
         scrollOffset = @intFromFloat(state.editorScroll.y);
 
-        if (state.mouseLeftClick and !state.prevMouseLeftClick and mouse.isMouseInRect(scrollBarLaneY)) {
+        if (mouse.isMouseInRect(scrollBarTrackY) and mouse.isJustLeftClick()) {
             state.movingScrollBarY = true;
-        } else if (!state.mouseLeftClick) {
+        } else if (!mouse.isLeftClickDown()) {
             state.movingScrollBarY = false;
         }
     }
@@ -302,7 +302,7 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32, origin
             }
 
             // Set cursor position
-            if (state.mouseLeftClick and !state.prevMouseLeftClick) {
+            if (mouse.isJustLeftClick()) {
                 file.cursorPos = types.CursorPosition{
                     .start = .{
                         .column = approximateColumn,
@@ -311,7 +311,7 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32, origin
                     .end = null,
                     .dragOrigin = null,
                 };
-            } else if (state.mouseLeftClick and state.prevMouseLeftClick) {
+            } else if (mouse.isLeftClickDown()) {
                 if (file.cursorPos.end) |_| {} else {
                     file.cursorPos.dragOrigin = file.cursorPos.start;
                 }
@@ -373,6 +373,7 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32, origin
             }
         }
 
+        // Draw line number
         var lineBuff: [4:0]u8 = undefined;
         _ = try std.fmt.bufPrint(@ptrCast(&lineBuff), "{d:4}", .{i + 1});
         lineBuff[4] = 0;
@@ -385,7 +386,7 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32, origin
             0,
             constants.colorUiFont,
         );
-        // Only way to display utf8
+        // Draws line as UTF8
         rl.drawTextCodepoints(
             state.codeFont,
             line.items,
@@ -415,20 +416,22 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32, origin
         .height = constants.scrollBarHeight,
     };
 
+    // Draw scrollbar track
     rl.drawRectangle(
-        scrollBarLaneY.x,
-        scrollBarLaneY.y,
-        scrollBarLaneY.width,
-        scrollBarLaneY.height,
+        scrollBarTrackY.x,
+        scrollBarTrackY.y,
+        scrollBarTrackY.width,
+        scrollBarTrackY.height,
         constants.colorBackground,
     );
     rl.drawRectangleLines(
-        scrollBarLaneY.x,
-        scrollBarLaneY.y,
-        scrollBarLaneY.width,
-        scrollBarLaneY.height,
+        scrollBarTrackY.x,
+        scrollBarTrackY.y,
+        scrollBarTrackY.width,
+        scrollBarTrackY.height,
         constants.colorLines,
     );
+    // Draw scrollbar thumb
     rl.drawRectangle(
         scrollBarRect.x,
         scrollBarRect.y,

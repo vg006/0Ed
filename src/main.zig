@@ -276,9 +276,9 @@ pub fn main() !void {
                 state.windowPosition = rl.getWindowPosition();
             }
 
-            if (state.mouseLeftClick and !state.prevMouseLeftClick and mouse.isMouseInRect(topBarMoveRect)) {
+            if (mouse.isMouseInRect(topBarMoveRect) and mouse.isJustLeftClick()) {
                 state.movingWindow = true;
-            } else if (!state.mouseLeftClick) {
+            } else if (!mouse.isLeftClickDown()) {
                 state.movingWindow = false;
             }
         }

@@ -12,7 +12,7 @@ pub fn drawButton(text: [*:0]const u8, fontSize: f32, rect: types.Recti32, paddi
         rl.setMouseCursor(rl.MouseCursor.pointing_hand);
     }
 
-    if (hovering and state.mouseLeftClick and !state.prevMouseLeftClick) {
+    if (hovering and mouse.isJustLeftClick()) {
         callback();
     }
 
