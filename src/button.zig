@@ -5,7 +5,7 @@ const mouse = @import("mouse.zig");
 const state = @import("global_state.zig");
 const constants = @import("constants.zig");
 
-pub fn drawButton(text: [*:0]const u8, fontSize: f32, rect: types.Recti32, padding: types.Vec2i32, callback: fn () void) void {
+pub fn drawButton(text: [*:0]const u8, fontSize: f32, rect: types.Recti32, padding: types.Vec2i32, callback: *const fn () void) void {
     const hovering = mouse.isMouseInRect(rect);
 
     if (hovering) {

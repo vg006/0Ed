@@ -35,6 +35,8 @@ pub var prevMouseLeftClick: bool = false;
 pub var mouseRightClick: bool = false;
 pub var prevMouseRightClick: bool = false;
 
+pub var topBarMenuOpened: types.TopBarMenu = types.TopBarMenu.None;
+
 pub var codeFont: rl.Font = undefined;
 pub var uiFont: rl.Font = undefined;
 

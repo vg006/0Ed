@@ -17,6 +17,14 @@ pub fn closeWindow() void {
 
 pub fn dud() void {}
 
+pub fn buttonCbFile() void {
+    state.topBarMenuOpened = types.TopBarMenu.File;
+}
+
+pub fn buttonCbEdit() void {
+    state.topBarMenuOpened = types.TopBarMenu.Edit;
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     state.allocator = gpa.allocator();
@@ -26,7 +34,7 @@ pub fn main() !void {
 
     state.openedFiles = std.ArrayList(types.OpenedFile).init(state.allocator);
 
-    try file.openFile(state.allocator, "./src/main.zig");
+    try file.openFile("./src/main.zig");
     state.currentlyDisplayedFileIdx = 0;
 
     const charSet = try std.fs.cwd().readFileAlloc(
@@ -55,6 +63,7 @@ pub fn main() !void {
     defer rl.closeWindow();
 
     rl.setTargetFPS(60);
+    rl.setExitKey(.null);
 
     if (rl.loadFontEx(
         "resources/CascadiaMono.ttf",
@@ -81,18 +90,19 @@ pub fn main() !void {
     rl.setTextureFilter(state.codeFont.texture, .bilinear);
     rl.setTextureFilter(state.uiFont.texture, .bilinear);
 
-    // Main game loop
-    while (!rl.windowShouldClose()) { // Detect window close button or ESC key
-
-        // Poll state changes
-        {
-            state.scrollVelocityY /= 1.5;
+    // Main loop
+    while (!rl.windowShouldClose()) {
+        { // Poll state changes
+            if (state.scrollVelocityY < 0.001 and state.scrollVelocityY > -0.001) {
+                state.scrollVelocityY = 0.0;
+            } else {
+                state.scrollVelocityY /= 1.5;
+            }
 
             try keys.getInputBuffer();
 
             state.windowWidth = rl.getScreenWidth();
             state.windowHeight = rl.getScreenHeight();
-
             state.windowPosition = rl.getWindowPosition();
 
             state.mouseWheelMove = rl.getMouseWheelMoveV();
@@ -107,15 +117,14 @@ pub fn main() !void {
             };
 
             state.prevMouseLeftClick = state.mouseLeftClick;
-            state.mouseLeftClick = rl.isMouseButtonDown(rl.MouseButton.left);
+            state.mouseLeftClick = rl.isMouseButtonDown(.left);
 
             state.prevMouseRightClick = state.mouseRightClick;
-            state.mouseRightClick = rl.isMouseButtonDown(rl.MouseButton.right);
+            state.mouseRightClick = rl.isMouseButtonDown(.right);
 
             if (state.mouseWheelMove.y != 0.0) {
                 state.scrollVelocityY += state.mouseWheelMove.y * constants.scrollVelocityMultiplier;
             }
-
             state.editorScroll.y += state.scrollVelocityY * constants.scrollIncrement;
 
             if (state.editorScroll.y > 0.0) state.editorScroll.y = 0.0;
@@ -130,8 +139,7 @@ pub fn main() !void {
         rl.beginDrawing();
         defer rl.endDrawing();
 
-        // Draw side bar
-        {
+        { // Draw side bar
             const sideBarRect: types.Recti32 = types.Recti32{
                 .x = 0,
                 .y = 39,
@@ -159,8 +167,7 @@ pub fn main() !void {
             );
         }
 
-        // Draw text rect
-        {
+        { // Draw text rect
             const codeRect: types.Recti32 = types.Recti32{
                 .x = 199,
                 .y = 39,
@@ -194,15 +201,14 @@ pub fn main() !void {
             );
         }
 
-        // Draw top bar
-        {
-            const topBarRect: types.Recti32 = types.Recti32{
-                .x = 0,
-                .y = 0,
-                .width = state.windowWidth,
-                .height = 40,
-            };
+        const topBarRect: types.Recti32 = types.Recti32{
+            .x = 0,
+            .y = 0,
+            .width = state.windowWidth,
+            .height = constants.topBarHeight,
+        };
 
+        { // Draw top bar
             if (mouse.isMouseInRect(topBarRect)) {
                 rl.setMouseCursor(.default);
             }
@@ -232,7 +238,7 @@ pub fn main() !void {
             }, types.Vec2i32{
                 .x = 10,
                 .y = 9,
-            }, dud);
+            }, &buttonCbFile);
 
             button.drawButton("Edit", 22, types.Recti32{
                 .x = 59,
@@ -242,7 +248,7 @@ pub fn main() !void {
             }, types.Vec2i32{
                 .x = 10,
                 .y = 9,
-            }, dud);
+            }, &buttonCbEdit);
 
             button.drawButton("X", 22, types.Recti32{
                 .x = state.windowWidth - 50,
@@ -252,7 +258,7 @@ pub fn main() !void {
             }, types.Vec2i32{
                 .x = 19,
                 .y = 9,
-            }, closeWindow);
+            }, &closeWindow);
 
             // TODO: put that at the top of the loop
             // no rendering needed but adds a frame of latency for no reason
@@ -283,56 +289,116 @@ pub fn main() !void {
             }
         }
 
-        var fpsBuff: [12:0]u8 = undefined;
-        _ = try std.fmt.bufPrintZ(&fpsBuff, "FPS:   {d}", .{rl.getFPS()});
+        { // Draw top bar menus
 
-        rl.drawTextEx(
-            state.uiFont,
-            &fpsBuff,
-            rl.Vector2{
-                .x = 5.0,
-                .y = @floatFromInt(state.windowHeight - 17 - 30),
-            },
-            15,
-            0,
-            rl.Color.white,
-        );
+            // X before menu item name means not implemented
+            const menuItems = switch (state.topBarMenuOpened) {
+                .None => null,
 
-        const cursorPos = state.openedFiles.items[0].cursorPos;
+                .File => types.Menu{
+                    .origin = .{ .x = 0, .y = constants.topBarHeight - 1 },
+                    .items = @constCast(&[_]types.MenuItem{
+                        .{ .name = "New File", .callback = &file.newFile },
+                        .{ .name = "Open File", .callback = &file.openFileDialog },
+                        .{ .name = "X Open Folder", .callback = &dud },
+                        .{ .name = "Save", .callback = &file.saveFile },
+                        .{ .name = "Save As", .callback = &file.saveFileAs },
+                    }),
+                },
 
-        var cursorStartBuff: [128:0]u8 = undefined;
-        _ = try std.fmt.bufPrintZ(&cursorStartBuff, "Start: Ln:{any} Col:{any}", .{ cursorPos.start.line + 1, cursorPos.start.column + 1 });
+                .Edit => types.Menu{
+                    .origin = .{ .x = constants.topBarMenuButtonWidth - 1, .y = constants.topBarHeight - 1 },
+                    .items = @constCast(&[_]types.MenuItem{
+                        .{ .name = "X Undo", .callback = &dud },
+                        .{ .name = "X Redo", .callback = &dud },
+                        .{ .name = "X Copy", .callback = &dud },
+                        .{ .name = "X Cut", .callback = &dud },
+                        .{ .name = "X Paste", .callback = &dud },
+                    }),
+                },
+            };
 
-        var cursorEndBuff: [128:0]u8 = undefined;
+            if (menuItems) |untypedMenu| {
+                const menu: types.Menu = untypedMenu;
 
-        if (cursorPos.end) |_| {
-            _ = try std.fmt.bufPrintZ(&cursorEndBuff, "End:   Ln:{any} Col:{any}", .{ cursorPos.end.?.line + 1, cursorPos.end.?.column + 1 });
-        } else {
-            _ = try std.fmt.bufPrintZ(&cursorEndBuff, "", .{});
+                // Draw menu buttons
+                for (menu.items, 0..) |item, i| {
+                    button.drawButton(
+                        item.name,
+                        constants.fontSize,
+                        .{
+                            .x = menu.origin.x,
+                            .y = constants.topBarHeight - 1 + @as(i32, @intCast(i)) * (constants.topBarMenuItemHeight - 1),
+                            .width = 130,
+                            .height = constants.topBarMenuItemHeight,
+                        },
+                        .{ .x = 10, .y = 5 },
+                        item.callback,
+                    );
+                }
+
+                // Hide menu if clicked outside of top bar
+                if (!mouse.isMouseInRect(topBarRect) and mouse.isJustLeftClick()) {
+                    state.topBarMenuOpened = .None;
+                }
+            }
         }
 
-        rl.drawTextEx(
-            state.uiFont,
-            &cursorStartBuff,
-            rl.Vector2{
-                .x = 5.0,
-                .y = @floatFromInt(state.windowHeight - 17 - 15),
-            },
-            15,
-            0,
-            rl.Color.white,
-        );
+        { // Draw folder tree
 
-        rl.drawTextEx(
-            state.uiFont,
-            &cursorEndBuff,
-            rl.Vector2{
-                .x = 5.0,
-                .y = @floatFromInt(state.windowHeight - 17),
-            },
-            15,
-            0,
-            rl.Color.white,
-        );
+        }
+
+        { // Draw debug infos
+            var fpsBuff: [12:0]u8 = undefined;
+            _ = try std.fmt.bufPrintZ(&fpsBuff, "FPS:   {d}", .{rl.getFPS()});
+
+            rl.drawTextEx(
+                state.uiFont,
+                &fpsBuff,
+                rl.Vector2{
+                    .x = 5.0,
+                    .y = @floatFromInt(state.windowHeight - 17 - 30),
+                },
+                15,
+                0,
+                rl.Color.white,
+            );
+
+            const cursorPos = state.openedFiles.items[0].cursorPos;
+
+            var cursorStartBuff: [128:0]u8 = undefined;
+            _ = try std.fmt.bufPrintZ(&cursorStartBuff, "Start: Ln:{any} Col:{any}", .{ cursorPos.start.line + 1, cursorPos.start.column + 1 });
+
+            var cursorEndBuff: [128:0]u8 = undefined;
+
+            if (cursorPos.end) |_| {
+                _ = try std.fmt.bufPrintZ(&cursorEndBuff, "End:   Ln:{any} Col:{any}", .{ cursorPos.end.?.line + 1, cursorPos.end.?.column + 1 });
+            } else {
+                _ = try std.fmt.bufPrintZ(&cursorEndBuff, "", .{});
+            }
+
+            rl.drawTextEx(
+                state.uiFont,
+                &cursorStartBuff,
+                rl.Vector2{
+                    .x = 5.0,
+                    .y = @floatFromInt(state.windowHeight - 17 - 15),
+                },
+                15,
+                0,
+                rl.Color.white,
+            );
+            rl.drawTextEx(
+                state.uiFont,
+                &cursorEndBuff,
+                rl.Vector2{
+                    .x = 5.0,
+                    .y = @floatFromInt(state.windowHeight - 17),
+                },
+                15,
+                0,
+                rl.Color.white,
+            );
+        }
     }
 }

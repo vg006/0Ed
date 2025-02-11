@@ -38,7 +38,23 @@ pub const CursorPosition = struct {
 
 pub const OpenedFile = struct {
     name: []const u8,
-    path: []const u8,
+    path: ?[]const u8,
     lines: std.ArrayList(std.ArrayList(CodePoint)),
     cursorPos: CursorPosition,
+};
+
+pub const TopBarMenu = enum(u8) {
+    None = 0,
+    File,
+    Edit,
+};
+
+pub const MenuItem = struct {
+    name: [:0]const u8,
+    callback: *const fn () void,
+};
+
+pub const Menu = struct {
+    origin: Vec2i32,
+    items: []MenuItem,
 };

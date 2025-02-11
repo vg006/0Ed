@@ -76,6 +76,8 @@ fn collapseSelection(file: *types.OpenedFile) !void {
 pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32, originalScrollOffset: i32) !void {
     //const startMics = std.time.microTimestamp();
 
+    if (state.openedFiles.items.len == 0) return;
+
     // TODO: implement find/replace
 
     if (file.lines.items.len > std.math.maxInt(i32)) {

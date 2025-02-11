@@ -27,6 +27,7 @@
             .url = "git+https://github.com/Not-Nik/raylib-zig?ref=5.6-dev#ae7cb3fa93a9a3cd5e5d86786b21350c77487afc",
             .hash = "12206dcab020370b4d496839c31cc24715c45a7b6f7f446a1a2def0d0d6c49779422",
         },
+        .nfd = .{ .path = "libs/nfd-zig" },
     },
     .paths = .{
         "build.zig",

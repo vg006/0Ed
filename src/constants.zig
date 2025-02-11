@@ -7,6 +7,11 @@ pub const keyPressRepeatFrameNb: usize = 30;
 
 pub const paddingSize: i32 = 10;
 
+pub const topBarHeight: i32 = 40;
+
+pub const topBarMenuButtonWidth: i32 = 60;
+pub const topBarMenuItemHeight: i32 = 30;
+
 pub const fontSize: i32 = 20;
 pub const lineHeight: i32 = fontSize;
 pub const colWidth: i32 = fontSize / 2;
