@@ -37,10 +37,11 @@ pub const CursorPosition = struct {
 };
 
 pub const OpenedFile = struct {
-    name: []const u8,
-    path: ?[]const u8,
+    name: [:0]const u8,
+    path: ?[:0]const u8,
     lines: std.ArrayList(std.ArrayList(CodePoint)),
     cursorPos: CursorPosition,
+    scroll: rl.Vector2,
 };
 
 pub const TopBarMenu = enum(u8) {

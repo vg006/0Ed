@@ -27,8 +27,6 @@ pub var prevMousePosition: rl.Vector2 = rl.Vector2{ .x = 0, .y = 0 };
 pub var mouseScreenPosition: rl.Vector2 = rl.Vector2{ .x = 0, .y = 0 };
 pub var prevMouseScreenPosition: rl.Vector2 = rl.Vector2{ .x = 0, .y = 0 };
 
-pub var editorScroll: rl.Vector2 = rl.Vector2{ .x = 0, .y = 0 };
-
 pub var mouseLeftClick: bool = false;
 pub var prevMouseLeftClick: bool = false;
 

@@ -17,6 +17,10 @@ pub fn closeWindow() void {
 
 pub fn dud() void {}
 
+pub fn dudArg(arg: anytype) void {
+    _ = arg;
+}
+
 pub fn buttonCbFile() void {
     state.topBarMenuOpened = types.TopBarMenu.File;
 }
@@ -122,19 +126,18 @@ pub fn main() !void {
             state.prevMouseRightClick = state.mouseRightClick;
             state.mouseRightClick = rl.isMouseButtonDown(.right);
 
-            if (state.mouseWheelMove.y != 0.0) {
-                state.scrollVelocityY += state.mouseWheelMove.y * constants.scrollVelocityMultiplier;
+            if (state.openedFiles.items.len > 0) {
+                var displayedFile = &state.openedFiles.items[state.currentlyDisplayedFileIdx];
+
+                if (state.mouseWheelMove.y != 0.0) {
+                    state.scrollVelocityY += state.mouseWheelMove.y * constants.scrollVelocityMultiplier;
+                }
+                displayedFile.scroll.y += state.scrollVelocityY * constants.scrollIncrement;
+
+                if (displayedFile.scroll.y > 0.0) displayedFile.scroll.y = 0.0;
+                if (displayedFile.scroll.x > 0.0) displayedFile.scroll.x = 0.0;
             }
-            state.editorScroll.y += state.scrollVelocityY * constants.scrollIncrement;
-
-            if (state.editorScroll.y > 0.0) state.editorScroll.y = 0.0;
-            if (state.editorScroll.x > 0.0) state.editorScroll.x = 0.0;
         }
-
-        const codeScrollInt: types.Vec2i32 = types.Vec2i32{
-            .x = @intFromFloat(state.editorScroll.x),
-            .y = @intFromFloat(state.editorScroll.y),
-        };
 
         rl.beginDrawing();
         defer rl.endDrawing();
@@ -170,9 +173,9 @@ pub fn main() !void {
         { // Draw text rect
             const codeRect: types.Recti32 = types.Recti32{
                 .x = 199,
-                .y = 39,
+                .y = (constants.topBarHeight * 2) - 2,
                 .width = state.windowWidth - 199,
-                .height = state.windowHeight - 39,
+                .height = state.windowHeight - (constants.topBarHeight * 2) + 2,
             };
 
             if (mouse.isMouseInRect(codeRect)) {
@@ -197,8 +200,60 @@ pub fn main() !void {
             try editor.drawFileContents(
                 &state.openedFiles.items[state.currentlyDisplayedFileIdx],
                 codeRect,
-                codeScrollInt.y,
             );
+        }
+
+        { // Draw file tabs
+            const fileTabsRect: types.Recti32 = types.Recti32{
+                .x = 199,
+                .y = constants.topBarHeight - 1,
+                .width = state.windowWidth - 199,
+                .height = constants.topBarHeight,
+            };
+
+            if (mouse.isMouseInRect(fileTabsRect)) {
+                rl.setMouseCursor(.default);
+            }
+
+            rl.drawRectangle(
+                fileTabsRect.x,
+                fileTabsRect.y,
+                fileTabsRect.width,
+                fileTabsRect.height,
+                constants.colorBackground,
+            );
+            rl.drawRectangleLines(
+                fileTabsRect.x,
+                fileTabsRect.y,
+                fileTabsRect.width,
+                fileTabsRect.height,
+                constants.colorLines,
+            );
+
+            var offset: i32 = 0;
+
+            for (state.openedFiles.items, 0..) |openedFile, i| {
+                const tabWidth = 20 + @as(i32, @intCast(openedFile.name.len)) * 10;
+
+                button.drawButtonArg(
+                    openedFile.name,
+                    22,
+                    .{
+                        .x = 199 + offset,
+                        .y = constants.topBarHeight - 1,
+                        .width = tabWidth,
+                        .height = constants.topBarHeight,
+                    },
+                    .{
+                        .x = 10,
+                        .y = 8,
+                    },
+                    i,
+                    &file.displayFile,
+                );
+
+                offset += tabWidth - 1;
+            }
         }
 
         const topBarRect: types.Recti32 = types.Recti32{
@@ -230,35 +285,53 @@ pub fn main() !void {
 
             // TODO: implement menus
 
-            button.drawButton("File", 22, types.Recti32{
-                .x = 0,
-                .y = 0,
-                .height = topBarRect.height,
-                .width = 60,
-            }, types.Vec2i32{
-                .x = 10,
-                .y = 9,
-            }, &buttonCbFile);
+            button.drawButton(
+                "File",
+                22,
+                types.Recti32{
+                    .x = 0,
+                    .y = 0,
+                    .height = topBarRect.height,
+                    .width = 60,
+                },
+                types.Vec2i32{
+                    .x = 10,
+                    .y = 9,
+                },
+                &buttonCbFile,
+            );
 
-            button.drawButton("Edit", 22, types.Recti32{
-                .x = 59,
-                .y = 0,
-                .height = topBarRect.height,
-                .width = 60,
-            }, types.Vec2i32{
-                .x = 10,
-                .y = 9,
-            }, &buttonCbEdit);
+            button.drawButton(
+                "Edit",
+                22,
+                types.Recti32{
+                    .x = 59,
+                    .y = 0,
+                    .height = topBarRect.height,
+                    .width = 60,
+                },
+                types.Vec2i32{
+                    .x = 10,
+                    .y = 9,
+                },
+                &buttonCbEdit,
+            );
 
-            button.drawButton("X", 22, types.Recti32{
-                .x = state.windowWidth - 50,
-                .y = 0,
-                .height = topBarRect.height,
-                .width = 50,
-            }, types.Vec2i32{
-                .x = 19,
-                .y = 9,
-            }, &closeWindow);
+            button.drawButton(
+                "X",
+                22,
+                types.Recti32{
+                    .x = state.windowWidth - 50,
+                    .y = 0,
+                    .height = topBarRect.height,
+                    .width = 50,
+                },
+                types.Vec2i32{
+                    .x = 19,
+                    .y = 9,
+                },
+                &closeWindow,
+            );
 
             // TODO: put that at the top of the loop
             // no rendering needed but adds a frame of latency for no reason

@@ -29,6 +29,11 @@ pub fn addOpenedFile(file: types.OpenedFile) void {
     }
 }
 
+pub fn displayFile(index: usize) void {
+    if (index >= state.openedFiles.items.len) return;
+    state.currentlyDisplayedFileIdx = index;
+}
+
 fn writeFile(file: *types.OpenedFile) !void {
     if (file.path == null) return;
 
@@ -93,8 +98,6 @@ pub fn saveFile() void {
 
 // Function called by button callback, cannot return error
 pub fn newFile() void {
-    state.editorScroll = .{ .x = 0, .y = 0 };
-
     var openedFile = types.OpenedFile{
         .path = null,
         .name = "NewFile.txt",
@@ -107,6 +110,7 @@ pub fn newFile() void {
             .end = null,
             .dragOrigin = null,
         },
+        .scroll = .{ .x = 0.0, .y = 0.0 },
     };
 
     // Add 1 empty line to the file
@@ -120,11 +124,14 @@ pub fn newFile() void {
 pub fn openFile(filePath: []const u8) error{ OpenError, ReadError, OutOfMemory }!void {
     const maxFileSize = @as(usize, 0) -% 1;
 
-    state.editorScroll = .{ .x = 0, .y = 0 };
+    const absPath = std.fs.path.basename(filePath);
+
+    const filePathZ = try state.allocator.dupeZ(u8, filePath);
+    const absPathZ = try state.allocator.dupeZ(u8, absPath);
 
     var openedFile = types.OpenedFile{
-        .path = filePath,
-        .name = std.fs.path.basename(filePath),
+        .path = filePathZ,
+        .name = absPathZ,
         .lines = std.ArrayList(std.ArrayList(i32)).init(state.allocator),
         .cursorPos = types.CursorPosition{
             .start = .{
@@ -134,6 +141,7 @@ pub fn openFile(filePath: []const u8) error{ OpenError, ReadError, OutOfMemory }
             .end = null,
             .dragOrigin = null,
         },
+        .scroll = .{ .x = 0.0, .y = 0.0 },
     };
 
     const maybeFile = std.fs.cwd().openFile(

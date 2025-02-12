@@ -73,8 +73,9 @@ fn collapseSelection(file: *types.OpenedFile) !void {
     }
 }
 
-pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32, originalScrollOffset: i32) !void {
+pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void {
     //const startMics = std.time.microTimestamp();
+    const originalScrollOffset: i32 = @intFromFloat(file.scroll.y);
 
     if (state.openedFiles.items.len == 0) return;
 
@@ -227,18 +228,18 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32, origin
         if (state.movingScrollBarY) {
             const moveY: f32 = state.mousePosition.y - state.prevMousePosition.y;
             const moveRelY: f32 = moveY / @as(f32, @floatFromInt(codeRect.height));
-            state.editorScroll.y -= totalLinesSizeF * moveRelY;
+            file.scroll.y -= totalLinesSizeF * moveRelY;
 
-            if (state.editorScroll.y > 0.0) {
-                state.editorScroll.y = 0.0;
+            if (file.scroll.y > 0.0) {
+                file.scroll.y = 0.0;
             }
         }
 
         // We do that regardless of scroll wheel move / scroll bar move
-        if (state.editorScroll.y < -totalLinesSizeF + @as(f32, @floatFromInt(codeRect.height - 10))) {
-            state.editorScroll.y = -totalLinesSizeF + @as(f32, @floatFromInt(codeRect.height - 10));
+        if (file.scroll.y < -totalLinesSizeF + @as(f32, @floatFromInt(codeRect.height - 10))) {
+            file.scroll.y = -totalLinesSizeF + @as(f32, @floatFromInt(codeRect.height - 10));
         }
-        scrollOffset = @intFromFloat(state.editorScroll.y);
+        scrollOffset = @intFromFloat(file.scroll.y);
 
         if (mouse.isMouseInRect(scrollBarTrackY) and mouse.isJustLeftClick()) {
             state.movingScrollBarY = true;
@@ -413,7 +414,7 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32, origin
 
     const scrollBarRect = types.Recti32{
         .x = codeRect.x + codeRect.width - 10,
-        .y = @intFromFloat((codeRectHeightF * relLinePosition) + ((relLinePosition * -constants.scrollBarHeightF) + (constants.scrollBarHeightF / 2.0))),
+        .y = @divTrunc(codeRect.y, 2) + @as(i32, @intFromFloat((codeRectHeightF * relLinePosition) + ((relLinePosition * -constants.scrollBarHeightF) + (constants.scrollBarHeightF / 2.0)))),
         .width = 10,
         .height = constants.scrollBarHeight,
     };
