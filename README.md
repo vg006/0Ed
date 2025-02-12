@@ -6,3 +6,9 @@
 ![Styling Example](https://github.com/wAIfu-DEV/0Ed/blob/main/resources/readme-assets/styling.png)
 
 ![CODE LETSGO](https://github.com/wAIfu-DEV/0Ed/blob/main/resources/readme-assets/code.gif)
+
+Roadmap:
+- Directory tree
+- Styling for many languages
+- Support for custom styling
+- Suggestions
