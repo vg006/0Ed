@@ -9,7 +9,7 @@ pub fn drawButton(text: [*:0]const u8, fontSize: f32, rect: types.Recti32, paddi
     const hovering = mouse.isMouseInRect(rect);
 
     if (hovering) {
-        rl.setMouseCursor(rl.MouseCursor.pointing_hand);
+        state.pointerType = .pointing_hand;
     }
 
     if (hovering and mouse.isJustLeftClick()) {
@@ -49,7 +49,7 @@ pub fn drawButtonArg(text: [*:0]const u8, fontSize: f32, rect: types.Recti32, pa
     const hovering = mouse.isMouseInRect(rect);
 
     if (hovering) {
-        rl.setMouseCursor(rl.MouseCursor.pointing_hand);
+        state.pointerType = .pointing_hand;
     }
 
     if (hovering and mouse.isJustLeftClick()) {

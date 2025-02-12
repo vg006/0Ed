@@ -151,7 +151,7 @@ pub fn main() !void {
             };
 
             if (mouse.isMouseInRect(sideBarRect)) {
-                rl.setMouseCursor(.default);
+                state.pointerType = .default;
             }
 
             rl.drawRectangle(
@@ -179,7 +179,7 @@ pub fn main() !void {
             };
 
             if (mouse.isMouseInRect(codeRect)) {
-                rl.setMouseCursor(.ibeam);
+                state.pointerType = .ibeam;
             }
 
             rl.drawRectangle(
@@ -212,7 +212,7 @@ pub fn main() !void {
             };
 
             if (mouse.isMouseInRect(fileTabsRect)) {
-                rl.setMouseCursor(.default);
+                state.pointerType = .default;
             }
 
             rl.drawRectangle(
@@ -265,7 +265,7 @@ pub fn main() !void {
 
         { // Draw top bar
             if (mouse.isMouseInRect(topBarRect)) {
-                rl.setMouseCursor(.default);
+                state.pointerType = .default;
             }
 
             rl.drawRectangle(
@@ -473,5 +473,7 @@ pub fn main() !void {
                 rl.Color.white,
             );
         }
+
+        rl.setMouseCursor(state.pointerType);
     }
 }
