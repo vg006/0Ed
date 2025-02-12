@@ -38,7 +38,7 @@ pub fn main() !void {
 
     state.openedFiles = std.ArrayList(types.OpenedFile).init(state.allocator);
 
-    try file.openFile("./src/main.zig");
+    //try file.openFile("./src/main.zig");
     state.currentlyDisplayedFileIdx = 0;
 
     const charSet = try std.fs.cwd().readFileAlloc(
@@ -197,10 +197,12 @@ pub fn main() !void {
                 constants.colorLines,
             );
 
-            try editor.drawFileContents(
-                &state.openedFiles.items[state.currentlyDisplayedFileIdx],
-                codeRect,
-            );
+            if (state.openedFiles.items.len > 0) {
+                try editor.drawFileContents(
+                    &state.openedFiles.items[state.currentlyDisplayedFileIdx],
+                    codeRect,
+                );
+            }
         }
 
         { // Draw file tabs
@@ -282,8 +284,6 @@ pub fn main() !void {
                 topBarRect.height,
                 constants.colorLines,
             );
-
-            // TODO: implement menus
 
             button.drawButton(
                 "File",
@@ -437,41 +437,43 @@ pub fn main() !void {
                 rl.Color.white,
             );
 
-            const cursorPos = state.openedFiles.items[0].cursorPos;
+            if (state.openedFiles.items.len > 0) {
+                const cursorPos = state.openedFiles.items[state.currentlyDisplayedFileIdx].cursorPos;
 
-            var cursorStartBuff: [128:0]u8 = undefined;
-            _ = try std.fmt.bufPrintZ(&cursorStartBuff, "Start: Ln:{any} Col:{any}", .{ cursorPos.start.line + 1, cursorPos.start.column + 1 });
+                var cursorStartBuff: [128:0]u8 = undefined;
+                _ = try std.fmt.bufPrintZ(&cursorStartBuff, "Start: Ln:{any} Col:{any}", .{ cursorPos.start.line + 1, cursorPos.start.column + 1 });
 
-            var cursorEndBuff: [128:0]u8 = undefined;
+                var cursorEndBuff: [128:0]u8 = undefined;
 
-            if (cursorPos.end) |_| {
-                _ = try std.fmt.bufPrintZ(&cursorEndBuff, "End:   Ln:{any} Col:{any}", .{ cursorPos.end.?.line + 1, cursorPos.end.?.column + 1 });
-            } else {
-                _ = try std.fmt.bufPrintZ(&cursorEndBuff, "", .{});
+                if (cursorPos.end) |_| {
+                    _ = try std.fmt.bufPrintZ(&cursorEndBuff, "End:   Ln:{any} Col:{any}", .{ cursorPos.end.?.line + 1, cursorPos.end.?.column + 1 });
+                } else {
+                    _ = try std.fmt.bufPrintZ(&cursorEndBuff, "", .{});
+                }
+
+                rl.drawTextEx(
+                    state.uiFont,
+                    &cursorStartBuff,
+                    rl.Vector2{
+                        .x = 5.0,
+                        .y = @floatFromInt(state.windowHeight - 17 - 15),
+                    },
+                    15,
+                    0,
+                    rl.Color.white,
+                );
+                rl.drawTextEx(
+                    state.uiFont,
+                    &cursorEndBuff,
+                    rl.Vector2{
+                        .x = 5.0,
+                        .y = @floatFromInt(state.windowHeight - 17),
+                    },
+                    15,
+                    0,
+                    rl.Color.white,
+                );
             }
-
-            rl.drawTextEx(
-                state.uiFont,
-                &cursorStartBuff,
-                rl.Vector2{
-                    .x = 5.0,
-                    .y = @floatFromInt(state.windowHeight - 17 - 15),
-                },
-                15,
-                0,
-                rl.Color.white,
-            );
-            rl.drawTextEx(
-                state.uiFont,
-                &cursorEndBuff,
-                rl.Vector2{
-                    .x = 5.0,
-                    .y = @floatFromInt(state.windowHeight - 17),
-                },
-                15,
-                0,
-                rl.Color.white,
-            );
         }
 
         rl.setMouseCursor(state.pointerType);

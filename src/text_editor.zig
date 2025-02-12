@@ -93,9 +93,6 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
 
         var char: i32 = 0;
 
-        // TODO: handle range selections
-        // Replace all characters, collapse lines
-
         const cursorPos = file.cursorPos.start;
 
         if (key.char != 0) {
