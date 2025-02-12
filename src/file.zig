@@ -34,6 +34,30 @@ pub fn displayFile(index: usize) void {
     state.currentlyDisplayedFileIdx = index;
 }
 
+pub fn removeFile(index: usize) void {
+    if (index >= state.openedFiles.items.len) return;
+
+    var file = &state.openedFiles.items[index];
+
+    if (state.currentlyDisplayedFileIdx >= index and state.currentlyDisplayedFileIdx > 0) {
+        state.currentlyDisplayedFileIdx -= 1;
+    }
+
+    state.allocator.free(file.name);
+
+    if (file.path) |nonNullPath| {
+        state.allocator.free(nonNullPath);
+    }
+
+    for (file.lines.items) |untypedLine| {
+        var line: std.ArrayList(i32) = untypedLine;
+        line.deinit();
+    }
+    file.lines.deinit();
+
+    _ = state.openedFiles.orderedRemove(index);
+}
+
 fn writeFile(file: *types.OpenedFile) !void {
     if (file.path == null) return;
 

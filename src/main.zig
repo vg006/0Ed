@@ -142,34 +142,6 @@ pub fn main() !void {
         rl.beginDrawing();
         defer rl.endDrawing();
 
-        { // Draw side bar
-            const sideBarRect: types.Recti32 = types.Recti32{
-                .x = 0,
-                .y = 39,
-                .width = 200,
-                .height = state.windowHeight - 39,
-            };
-
-            if (mouse.isMouseInRect(sideBarRect)) {
-                state.pointerType = .default;
-            }
-
-            rl.drawRectangle(
-                sideBarRect.x,
-                sideBarRect.y,
-                sideBarRect.width,
-                sideBarRect.height,
-                constants.colorBackground,
-            );
-            rl.drawRectangleLines(
-                sideBarRect.x,
-                sideBarRect.y,
-                sideBarRect.width,
-                sideBarRect.height,
-                constants.colorLines,
-            );
-        }
-
         { // Draw text rect
             const codeRect: types.Recti32 = types.Recti32{
                 .x = 199,
@@ -234,7 +206,12 @@ pub fn main() !void {
 
             var offset: i32 = 0;
 
-            for (state.openedFiles.items, 0..) |openedFile, i| {
+            // TODO: Scroll tabs if the width > viewport width
+            // TODO: Way to close tab
+
+            var i: usize = 0;
+            while (i < state.openedFiles.items.len) {
+                const openedFile = &state.openedFiles.items[i];
                 const tabWidth = 20 + @as(i32, @intCast(openedFile.name.len)) * 10;
 
                 button.drawButtonArg(
@@ -251,11 +228,59 @@ pub fn main() !void {
                         .y = 8,
                     },
                     i,
-                    &file.displayFile,
+                    &file.displayFile, // Displays file with index i
                 );
 
                 offset += tabWidth - 1;
+
+                button.drawButtonArg(
+                    "x",
+                    22,
+                    .{
+                        .x = 199 + offset,
+                        .y = constants.topBarHeight - 1,
+                        .width = constants.topBarHeight,
+                        .height = constants.topBarHeight,
+                    },
+                    .{
+                        .x = 15,
+                        .y = 8,
+                    },
+                    i,
+                    &file.removeFile, // Remove file with index i
+                );
+
+                offset += constants.topBarHeight - 1;
+                i += 1;
             }
+        }
+
+        { // Draw side bar
+            const sideBarRect: types.Recti32 = types.Recti32{
+                .x = 0,
+                .y = 39,
+                .width = 200,
+                .height = state.windowHeight - 39,
+            };
+
+            if (mouse.isMouseInRect(sideBarRect)) {
+                state.pointerType = .default;
+            }
+
+            rl.drawRectangle(
+                sideBarRect.x,
+                sideBarRect.y,
+                sideBarRect.width,
+                sideBarRect.height,
+                constants.colorBackground,
+            );
+            rl.drawRectangleLines(
+                sideBarRect.x,
+                sideBarRect.y,
+                sideBarRect.width,
+                sideBarRect.height,
+                constants.colorLines,
+            );
         }
 
         const topBarRect: types.Recti32 = types.Recti32{
@@ -333,8 +358,6 @@ pub fn main() !void {
                 &closeWindow,
             );
 
-            // TODO: put that at the top of the loop
-            // no rendering needed but adds a frame of latency for no reason
             const topBarMoveRect: types.Recti32 = types.Recti32{
                 .x = 119, // width of buttons
                 .y = 0,
@@ -342,6 +365,7 @@ pub fn main() !void {
                 .height = topBarRect.height,
             };
 
+            // Move window while user is dragging top bar
             if (state.movingWindow) {
                 const moveRight: f32 = state.mouseScreenPosition.x - state.prevMouseScreenPosition.x;
                 const moveBottom: f32 = state.mouseScreenPosition.y - state.prevMouseScreenPosition.y;
@@ -363,11 +387,10 @@ pub fn main() !void {
         }
 
         { // Draw top bar menus
-
-            // X before menu item name means not implemented
             const menuItems = switch (state.topBarMenuOpened) {
                 .None => null,
 
+                // X before menu item name means not implemented
                 .File => types.Menu{
                     .origin = .{ .x = 0, .y = constants.topBarHeight - 1 },
                     .items = @constCast(&[_]types.MenuItem{
@@ -379,6 +402,7 @@ pub fn main() !void {
                     }),
                 },
 
+                // X before menu item name means not implemented
                 .Edit => types.Menu{
                     .origin = .{ .x = constants.topBarMenuButtonWidth - 1, .y = constants.topBarHeight - 1 },
                     .items = @constCast(&[_]types.MenuItem{
@@ -441,12 +465,20 @@ pub fn main() !void {
                 const cursorPos = state.openedFiles.items[state.currentlyDisplayedFileIdx].cursorPos;
 
                 var cursorStartBuff: [128:0]u8 = undefined;
-                _ = try std.fmt.bufPrintZ(&cursorStartBuff, "Start: Ln:{any} Col:{any}", .{ cursorPos.start.line + 1, cursorPos.start.column + 1 });
+                _ = try std.fmt.bufPrintZ(
+                    &cursorStartBuff,
+                    "Start: Ln:{any} Col:{any}",
+                    .{ cursorPos.start.line + 1, cursorPos.start.column + 1 },
+                );
 
                 var cursorEndBuff: [128:0]u8 = undefined;
 
                 if (cursorPos.end) |_| {
-                    _ = try std.fmt.bufPrintZ(&cursorEndBuff, "End:   Ln:{any} Col:{any}", .{ cursorPos.end.?.line + 1, cursorPos.end.?.column + 1 });
+                    _ = try std.fmt.bufPrintZ(
+                        &cursorEndBuff,
+                        "End:   Ln:{any} Col:{any}",
+                        .{ cursorPos.end.?.line + 1, cursorPos.end.?.column + 1 },
+                    );
                 } else {
                     _ = try std.fmt.bufPrintZ(&cursorEndBuff, "", .{});
                 }
