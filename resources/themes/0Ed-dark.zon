@@ -1,0 +1,21 @@
+.{
+    .name = "0Ed Dark",
+    .styles = .{
+        .{
+            .name = "strings",
+            .rgb = .{ 0, 100, 255 },
+        },
+        .{
+            .name = "comments",
+            .rgb = .{ 75, 75, 75 },
+        },
+        .{
+            .name = "keywords",
+            .rgb = .{ 255, 0, 0 },
+        },
+        .{
+            .name = "function",
+            .rgb = .{ 255, 0, 255 },
+        },
+    },
+}

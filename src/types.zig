@@ -59,3 +59,22 @@ pub const Menu = struct {
     origin: Vec2i32,
     items: []MenuItem,
 };
+
+pub const Rgb = [3]u8;
+
+pub const ExprColor = struct {
+    name: []const u8,
+    rgb: Rgb,
+};
+
+pub const Style = struct {
+    name: []const u8,
+    expr: []const u8,
+};
+
+pub const MatchedStyle = struct {
+    style: ?Style,
+    priority: i32,
+    start: i32,
+    end: i32,
+};

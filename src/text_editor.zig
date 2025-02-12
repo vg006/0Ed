@@ -1,5 +1,7 @@
 const std = @import("std");
 const rl = @import("raylib");
+const regex = @import("regex_codepoint.zig");
+
 const state = @import("global_state.zig");
 const types = @import("types.zig");
 const constants = @import("constants.zig");
@@ -17,6 +19,7 @@ fn lineInSelection(cursor: types.CursorPosition, lineIdx: i32) bool {
 
 fn collapseSelection(file: *types.OpenedFile) !void {
     if (file.cursorPos.end) |cursorEnd| {
+        // If selection is on same line, just remove range
         if (file.cursorPos.start.line == cursorEnd.line) {
             const line: *std.ArrayList(i32) = &file.lines.items[@intCast(cursorEnd.line)];
             const emptyList: [0]i32 = undefined;
@@ -27,7 +30,10 @@ fn collapseSelection(file: *types.OpenedFile) !void {
             );
             file.cursorPos.end = null;
             return;
-        } else if (cursorEnd.line == file.cursorPos.start.line + 1) {
+        }
+        // If selection is on two lines, remove end of first line, begining of
+        // second line and append the second line to the first.
+        else if (cursorEnd.line == file.cursorPos.start.line + 1) {
             const line: *std.ArrayList(i32) = &file.lines.items[@intCast(file.cursorPos.start.line)];
             const emptyList: [0]i32 = undefined;
             try line.replaceRange(
@@ -46,7 +52,11 @@ fn collapseSelection(file: *types.OpenedFile) !void {
             _ = file.lines.orderedRemove(@intCast(cursorEnd.line));
             file.cursorPos.end = null;
             return;
-        } else {
+        }
+        // If selection is on >2 lines, remove end of first line, begining of
+        // last line and append the second line to the first.
+        // Removes all the lines in between the two
+        else {
             const line: *std.ArrayList(i32) = &file.lines.items[@intCast(file.cursorPos.start.line)];
             const emptyList: [0]i32 = undefined;
             try line.replaceRange(
@@ -73,38 +83,51 @@ fn collapseSelection(file: *types.OpenedFile) !void {
     }
 }
 
-pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void {
-    //const startMics = std.time.microTimestamp();
-    const originalScrollOffset: i32 = @intFromFloat(file.scroll.y);
-
-    if (state.openedFiles.items.len == 0) return;
-
-    // TODO: implement find/replace
-
-    if (file.lines.items.len > std.math.maxInt(i32)) {
-        return error.FileTooBig;
+pub fn getColorFromStyleName(name: []const u8) types.Rgb {
+    // TODO: change this to a hashmap ONLY IF the amount of styles becomes > 50
+    // string comparison is more efficient up until then.
+    for (state.styles) |style| {
+        if (std.mem.eql(u8, style.name, name)) {
+            return style.rgb;
+        }
     }
+    return .{ constants.colorCodeFont.r, constants.colorCodeFont.g, constants.colorCodeFont.b };
+}
 
-    // Handle input buffer
+pub fn handleFileInput(file: *types.OpenedFile) !void {
     var keyIdx: usize = @subWithOverflow(state.inputBuffer.items.len, 1)[0];
     while (keyIdx != std.math.maxInt(usize)) {
+        // Get last key in input buffer
         const key: types.KeyChar = state.inputBuffer.items[keyIdx];
         keyIdx = @subWithOverflow(keyIdx, 1)[0];
 
+        // Char is UTF8 and as such is stored as a codepoint (i32)
         var char: i32 = 0;
 
         const cursorPos = file.cursorPos.start;
 
+        // Key is non-control character, collapse selection and write to line
         if (key.char != 0) {
             char = key.char;
             try collapseSelection(file);
-        } else {
+
+            const editLine: usize = @intCast(file.cursorPos.start.line);
+            const editCol: usize = @intCast(file.cursorPos.start.column);
+
+            var line: *std.ArrayList(types.CodePoint) = &file.lines.items[editLine];
+
+            try line.insert(editCol, key.char);
+            file.cursorPos.start.column += 1;
+        }
+        // Key is control character, handle special cases
+        else {
             const cursorPosLine: usize = @intCast(cursorPos.line);
             const cursorPosCol: usize = @intCast(cursorPos.column);
 
             // TODO: handle special keys
             // del, tab
 
+            // Is arrow
             if (key.key == .up or key.key == .down or key.key == .left or key.key == .right) {
                 file.cursorPos.dragOrigin = null;
                 file.cursorPos.end = null;
@@ -144,7 +167,9 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
                 if (file.cursorPos.start.column > line.items.len) {
                     file.cursorPos.start.column = @intCast(line.items.len);
                 }
-            } else if (key.key == .enter or key.key == .kp_enter) {
+            }
+            // Is Enter
+            else if (key.key == .enter or key.key == .kp_enter) {
                 try collapseSelection(file);
 
                 // Split line and insert rest of line under
@@ -166,7 +191,9 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
                     .line = cursorPos.line + 1,
                     .column = 0,
                 };
-            } else if (key.key == .backspace) {
+            }
+            // Is Backspace (leftward delete)
+            else if (key.key == .backspace) {
                 if (file.cursorPos.end) |_| {
                     // If we have range selection, just collapse it
                     try collapseSelection(file);
@@ -194,19 +221,18 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
                 }
             }
         }
+    }
+}
 
-        if (char != 0) {
-            const editLine: usize = @intCast(file.cursorPos.start.line);
-            const editCol: usize = @intCast(file.cursorPos.start.column);
+pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void {
+    //const startMics = std.time.microTimestamp();
+    // TODO: implement find/replace
 
-            var line: *std.ArrayList(types.CodePoint) = &file.lines.items[editLine];
-
-            try line.insert(editCol, key.char);
-            file.cursorPos.start.column += 1;
-        }
+    if (file.lines.items.len > std.math.maxInt(i32)) {
+        return error.FileTooBig;
     }
 
-    var scrollOffset: i32 = originalScrollOffset;
+    var scrollOffset: i32 = @intFromFloat(file.scroll.y);
 
     // TODO: Horizontal scrollbar handling
 
@@ -232,6 +258,7 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
             }
         }
 
+        // Cap the scroll depending on file size.
         // We do that regardless of scroll wheel move / scroll bar move
         if (file.scroll.y < -totalLinesSizeF + @as(f32, @floatFromInt(codeRect.height - 10))) {
             file.scroll.y = -totalLinesSizeF + @as(f32, @floatFromInt(codeRect.height - 10));
@@ -274,7 +301,7 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
 
     while (i < file.lines.items.len) : (i += 1) {
         const idx: i32 = @intCast(i);
-        const line = file.lines.items[i];
+        const line: std.ArrayList(i32) = file.lines.items[i];
 
         const yPos: f32 = @floatFromInt(scrolledTop + (idx * constants.lineHeight));
 
@@ -386,15 +413,113 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
             0,
             constants.colorUiFont,
         );
+
+        // TODO: handle styles
+
+        var styleStack = std.ArrayList(types.MatchedStyle).init(state.allocator);
+        defer styleStack.deinit();
+
+        for (state.zigStyles, 0..) |style, j| {
+            const re = try regex.compileRegex(state.allocator, style.expr);
+            const matches = try regex.getMatchesCodepoint(state.allocator, re, line.items);
+            for (matches.items) |untypedMatch| {
+                const match: regex.ReMatch = untypedMatch;
+                try styleStack.append(.{
+                    .style = style,
+                    .priority = @intCast(j),
+                    .start = @intCast(match.start),
+                    .end = @intCast(match.end),
+                });
+            }
+        }
+
+        var flattenedStyleStack = std.ArrayList(types.MatchedStyle).init(state.allocator);
+        defer flattenedStyleStack.deinit();
+
+        try flattenedStyleStack.append(.{
+            .style = null,
+            .priority = 999,
+            .start = 0,
+            .end = std.math.maxInt(i32),
+        });
+
+        var currentStyle: *types.MatchedStyle = &flattenedStyleStack.items[flattenedStyleStack.items.len - 1];
+
+        for (line.items, 0..) |c, j| {
+            _ = c;
+
+            for (styleStack.items) |untypedStyle| {
+                const style: types.MatchedStyle = untypedStyle;
+
+                // Higher priority style, end previous style and start new one.
+                if (style.priority < currentStyle.priority and style.start == @as(i32, @intCast(j))) {
+                    currentStyle.end = @as(i32, @intCast(j));
+                    try flattenedStyleStack.append(.{
+                        .style = style.style,
+                        .priority = style.priority,
+                        .start = @as(i32, @intCast(j)),
+                        .end = std.math.maxInt(i32),
+                    });
+                    currentStyle = &flattenedStyleStack.items[flattenedStyleStack.items.len - 1];
+                }
+                // Style match ended
+                else if (style.priority == currentStyle.priority and style.end == @as(i32, @intCast(j))) {
+                    currentStyle.end = @as(i32, @intCast(j));
+                    try flattenedStyleStack.append(.{
+                        .style = null,
+                        .priority = 999,
+                        .start = @as(i32, @intCast(j)),
+                        .end = std.math.maxInt(i32),
+                    });
+                    currentStyle = &flattenedStyleStack.items[flattenedStyleStack.items.len - 1];
+                }
+            }
+        }
+        currentStyle.end = @intCast(line.items.len);
+
         // Draws line as UTF8
-        rl.drawTextCodepoints(
-            state.codeFont,
-            line.items,
-            textPos,
-            constants.fontSize,
-            0,
-            constants.colorCodeFont,
-        );
+        // rl.drawTextCodepoints(
+        //     state.codeFont,
+        //     line.items,
+        //     textPos,
+        //     constants.fontSize,
+        //     0,
+        //     constants.colorCodeFont,
+        // );
+
+        var offset: f32 = 0.0;
+
+        for (flattenedStyleStack.items) |untypedStyle| {
+            const style: types.MatchedStyle = untypedStyle;
+
+            var color: types.Rgb = undefined;
+            if (style.style) |nonNullStyle| {
+                color = getColorFromStyleName(nonNullStyle.name);
+            } else {
+                color[0] = constants.colorCodeFont.r;
+                color[1] = constants.colorCodeFont.g;
+                color[2] = constants.colorCodeFont.b;
+            }
+
+            const start: usize = @intCast(style.start);
+            const end: usize = @intCast(style.end);
+
+            var newTextPos = textPos;
+            newTextPos.x += offset;
+
+            const segmentColor = rl.Color.init(color[0], color[1], color[2], 255);
+
+            rl.drawTextCodepoints(
+                state.codeFont,
+                line.items[start..end],
+                newTextPos,
+                constants.fontSize,
+                0,
+                segmentColor,
+            );
+
+            offset += @floatFromInt((style.end - style.start) * 10);
+        }
     }
 
     //std.debug.print("                         ", .{});

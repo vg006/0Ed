@@ -1,0 +1,22 @@
+.{
+    .name = "Zig",
+    .exts = .{ ".zig", ".zon" },
+    .expressions = .{
+        .{
+            .name = "strings",
+            .expr = "\".*\"",
+        },
+        .{
+            .name = "comments",
+            .expr = "//.*",
+        },
+        .{
+            .name = "keywords",
+            .expr = "\\b(fn|bool|true|false|try|return|const|var|pub|while|for|if|else|orelse|defer|defererr)\\b",
+        },
+        .{
+            .name = "function",
+            .expr = "\\w+\\s*\\(",
+        },
+    },
+}

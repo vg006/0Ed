@@ -29,11 +29,13 @@ pub fn addOpenedFile(file: types.OpenedFile) void {
     }
 }
 
+// Function called by button callback, cannot return error
 pub fn displayFile(index: usize) void {
     if (index >= state.openedFiles.items.len) return;
     state.currentlyDisplayedFileIdx = index;
 }
 
+// Function called by button callback, cannot return error
 pub fn removeFile(index: usize) void {
     if (index >= state.openedFiles.items.len) return;
 
@@ -91,6 +93,7 @@ fn writeFile(file: *types.OpenedFile) !void {
     try bufWriter.flush();
 }
 
+// Function called by button callback, cannot return error
 pub fn saveFileAs() void {
     if (state.openedFiles.items.len == 0) return;
 
@@ -106,6 +109,7 @@ pub fn saveFileAs() void {
     }
 }
 
+// Function called by button callback, cannot return error
 pub fn saveFile() void {
     if (state.openedFiles.items.len == 0) return;
 
@@ -122,9 +126,14 @@ pub fn saveFile() void {
 
 // Function called by button callback, cannot return error
 pub fn newFile() void {
+    const nameZ = state.allocator.dupeZ(u8, "NewFile.txt") catch |err| {
+        std.log.err("Error with newFile: {any}", .{err});
+        return;
+    };
+
     var openedFile = types.OpenedFile{
         .path = null,
-        .name = "NewFile.txt",
+        .name = nameZ,
         .lines = std.ArrayList(std.ArrayList(i32)).init(state.allocator),
         .cursorPos = types.CursorPosition{
             .start = .{

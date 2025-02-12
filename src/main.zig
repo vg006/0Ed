@@ -33,69 +33,89 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     state.allocator = gpa.allocator();
 
+    // Init global state buffers
     state.inputBuffer = std.ArrayList(types.KeyChar).init(state.allocator);
     state.pressedKeys = std.ArrayList(types.PressedKeyState).init(state.allocator);
-
     state.openedFiles = std.ArrayList(types.OpenedFile).init(state.allocator);
+    state.fontCharset = std.ArrayList(types.CodePoint).init(state.allocator);
 
-    //try file.openFile("./src/main.zig");
-    state.currentlyDisplayedFileIdx = 0;
-
-    const charSet = try std.fs.cwd().readFileAlloc(
-        state.allocator,
-        "./resources/font_charset.txt",
-        std.math.maxInt(u64),
-    );
-    var charSetCodepoints = std.ArrayList(types.CodePoint).init(state.allocator);
-
-    var it = std.unicode.Utf8Iterator{ .bytes = charSet, .i = 0 };
-
-    while (it.nextCodepoint()) |codepoint| {
-        try charSetCodepoints.append(@intCast(codepoint));
+    // Reads charset file, and creates codepoints out of each char.
+    // This is needed as Raylib expects a list of characters the loaded font can
+    // handle, and assumes ASCII by default.
+    // Codepoint will be a recurrent term in this codebase as it is the way for
+    // Raylib to draw UTF8 characters.
+    {
+        const charSet = try std.fs.cwd().readFileAlloc(
+            state.allocator,
+            "./resources/fonts/font_charset.txt",
+            std.math.maxInt(u64),
+        );
+        var it = std.unicode.Utf8Iterator{
+            .bytes = charSet,
+            .i = 0,
+        };
+        while (it.nextCodepoint()) |codepoint| {
+            try state.fontCharset.append(@intCast(codepoint));
+        }
+        state.allocator.free(charSet);
     }
 
-    // TODO: handle multiple files open
-    // tabs?
+    { // Set raylib window flags
+        rl.setConfigFlags(.{
+            .window_resizable = true,
+            .window_transparent = false,
+            .window_undecorated = true,
+            .vsync_hint = false,
+            .msaa_4x_hint = true,
+            .window_highdpi = true,
+            .interlaced_hint = true,
+        });
+        rl.setTargetFPS(120);
+        rl.setExitKey(.null); // Remove ESC as exit key
+    }
 
-    rl.setConfigFlags(.{
-        .window_resizable = true,
-        .window_transparent = true,
-        .window_undecorated = true,
-    });
-
-    rl.initWindow(state.initialWindowWidth, state.initialWindowHeight, "wed2");
+    rl.initWindow(state.initialWindowWidth, state.initialWindowHeight, "0Ed");
     defer rl.closeWindow();
 
-    rl.setTargetFPS(60);
-    rl.setExitKey(.null);
+    const icon = try rl.loadImage("resources/icons/icon.png");
+    rl.setWindowIcon(icon);
+    var iconTexture = try rl.loadTextureFromImage(icon);
+    iconTexture.height = @intFromFloat(@as(f32, @floatFromInt(constants.topBarHeight)) / 1.25);
+    iconTexture.width = @intFromFloat(@as(f32, @floatFromInt(constants.topBarHeight)) / 1.25);
+    rl.setTextureFilter(iconTexture, .bilinear);
 
-    if (rl.loadFontEx(
-        "resources/CascadiaMono.ttf",
-        42,
-        charSetCodepoints.items,
-    )) |font| {
-        state.codeFont = font;
-    } else |err| {
-        std.log.err("Failed to load font CascadiaMono.ttf Error: {any}", .{err});
-        return;
+    { // Load fonts
+        if (rl.loadFontEx(
+            "resources/fonts/CascadiaMono.ttf",
+            64,
+            state.fontCharset.items,
+        )) |font| {
+            state.codeFont = font;
+        } else |err| {
+            std.log.err("Failed to load font CascadiaMono.ttf Error: {any}", .{err});
+            return;
+        }
+
+        if (rl.loadFontEx(
+            "resources/fonts/RobotoMono.ttf",
+            64,
+            state.fontCharset.items,
+        )) |font| {
+            state.uiFont = font;
+        } else |err| {
+            std.log.err("Failed to load font RobotoMono.ttf Error: {any}", .{err});
+            return;
+        }
+
+        rl.setTextureFilter(state.codeFont.texture, .bilinear);
+        rl.setTextureFilter(state.uiFont.texture, .bilinear);
     }
-
-    if (rl.loadFontEx(
-        "resources/RobotoMono.ttf",
-        42,
-        charSetCodepoints.items,
-    )) |font| {
-        state.uiFont = font;
-    } else |err| {
-        std.log.err("Failed to load font RobotoMono.ttf Error: {any}", .{err});
-        return;
-    }
-
-    rl.setTextureFilter(state.codeFont.texture, .bilinear);
-    rl.setTextureFilter(state.uiFont.texture, .bilinear);
 
     // Main loop
     while (!rl.windowShouldClose()) {
+        rl.beginDrawing();
+        defer rl.endDrawing();
+
         { // Poll state changes
             if (state.scrollVelocityY < 0.001 and state.scrollVelocityY > -0.001) {
                 state.scrollVelocityY = 0.0;
@@ -139,11 +159,8 @@ pub fn main() !void {
             }
         }
 
-        rl.beginDrawing();
-        defer rl.endDrawing();
-
         { // Draw text rect
-            const codeRect: types.Recti32 = types.Recti32{
+            const codeRect = types.Recti32{
                 .x = 199,
                 .y = (constants.topBarHeight * 2) - 2,
                 .width = state.windowWidth - 199,
@@ -170,15 +187,14 @@ pub fn main() !void {
             );
 
             if (state.openedFiles.items.len > 0) {
-                try editor.drawFileContents(
-                    &state.openedFiles.items[state.currentlyDisplayedFileIdx],
-                    codeRect,
-                );
+                const f = &state.openedFiles.items[state.currentlyDisplayedFileIdx];
+                try editor.handleFileInput(f);
+                try editor.drawFileContents(f, codeRect);
             }
         }
 
         { // Draw file tabs
-            const fileTabsRect: types.Recti32 = types.Recti32{
+            const fileTabsRect = types.Recti32{
                 .x = 199,
                 .y = constants.topBarHeight - 1,
                 .width = state.windowWidth - 199,
@@ -256,7 +272,7 @@ pub fn main() !void {
         }
 
         { // Draw side bar
-            const sideBarRect: types.Recti32 = types.Recti32{
+            const sideBarRect = types.Recti32{
                 .x = 0,
                 .y = 39,
                 .width = 200,
@@ -283,7 +299,7 @@ pub fn main() !void {
             );
         }
 
-        const topBarRect: types.Recti32 = types.Recti32{
+        const topBarRect = types.Recti32{
             .x = 0,
             .y = 0,
             .width = state.windowWidth,
@@ -314,7 +330,7 @@ pub fn main() !void {
                 "File",
                 22,
                 types.Recti32{
-                    .x = 0,
+                    .x = constants.topBarHeight + 5,
                     .y = 0,
                     .height = topBarRect.height,
                     .width = 60,
@@ -330,7 +346,7 @@ pub fn main() !void {
                 "Edit",
                 22,
                 types.Recti32{
-                    .x = 59,
+                    .x = 59 + constants.topBarHeight + 5,
                     .y = 0,
                     .height = topBarRect.height,
                     .width = 60,
@@ -343,8 +359,8 @@ pub fn main() !void {
             );
 
             button.drawButton(
-                "X",
-                22,
+                "x",
+                28,
                 types.Recti32{
                     .x = state.windowWidth - 50,
                     .y = 0,
@@ -353,15 +369,17 @@ pub fn main() !void {
                 },
                 types.Vec2i32{
                     .x = 19,
-                    .y = 9,
+                    .y = 3,
                 },
                 &closeWindow,
             );
 
-            const topBarMoveRect: types.Recti32 = types.Recti32{
-                .x = 119, // width of buttons
+            rl.drawTexture(iconTexture, 7, 5, .white);
+
+            const topBarMoveRect = types.Recti32{
+                .x = 119 + constants.topBarHeight + 5, // width of buttons
                 .y = 0,
-                .width = state.windowWidth - 119 - 50, // window width - width of buttons
+                .width = state.windowWidth - (119 + constants.topBarHeight + 5) - 50, // window width - width of buttons
                 .height = topBarRect.height,
             };
 
@@ -392,7 +410,7 @@ pub fn main() !void {
 
                 // X before menu item name means not implemented
                 .File => types.Menu{
-                    .origin = .{ .x = 0, .y = constants.topBarHeight - 1 },
+                    .origin = .{ .x = constants.topBarHeight + 5, .y = constants.topBarHeight - 1 },
                     .items = @constCast(&[_]types.MenuItem{
                         .{ .name = "New File", .callback = &file.newFile },
                         .{ .name = "Open File", .callback = &file.openFileDialog },
@@ -404,7 +422,7 @@ pub fn main() !void {
 
                 // X before menu item name means not implemented
                 .Edit => types.Menu{
-                    .origin = .{ .x = constants.topBarMenuButtonWidth - 1, .y = constants.topBarHeight - 1 },
+                    .origin = .{ .x = 59 + constants.topBarHeight + 5, .y = constants.topBarHeight - 1 },
                     .items = @constCast(&[_]types.MenuItem{
                         .{ .name = "X Undo", .callback = &dud },
                         .{ .name = "X Redo", .callback = &dud },
