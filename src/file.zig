@@ -21,6 +21,21 @@ pub fn openFileDialog() void {
     }
 }
 
+// Function called by button callback, cannot return error
+pub fn openFolderDialog() void {
+    // TODO: default path should be CWD
+    if (nfd.openFolderDialog(null)) |path| {
+        if (path) |nonNullPath| {
+            openFolder(nonNullPath) catch |err| {
+                std.log.err("Error when trying to open folder: {s} {any}", .{ nonNullPath, err });
+            };
+        }
+    } else |err| {
+        // TODO: Show error modal when implemented
+        std.log.err("Error with openFileDialog: {any}", .{err});
+    }
+}
+
 pub fn addOpenedFile(file: types.OpenedFile) void {
     if (state.openedFiles.append(file)) |_| {
         state.currentlyDisplayedFileIdx = state.openedFiles.items.len - 1;
@@ -157,14 +172,14 @@ pub fn newFile() void {
 pub fn openFile(filePath: []const u8) error{ OpenError, ReadError, OutOfMemory }!void {
     const maxFileSize = @as(usize, 0) -% 1;
 
-    const absPath = std.fs.path.basename(filePath);
+    const fileName = std.fs.path.basename(filePath);
 
     const filePathZ = try state.allocator.dupeZ(u8, filePath);
-    const absPathZ = try state.allocator.dupeZ(u8, absPath);
+    const fileNameZ = try state.allocator.dupeZ(u8, fileName);
 
     var openedFile = types.OpenedFile{
         .path = filePathZ,
-        .name = absPathZ,
+        .name = fileNameZ,
         .lines = std.ArrayList(std.ArrayList(i32)).init(state.allocator),
         .cursorPos = types.CursorPosition{
             .start = .{
@@ -235,4 +250,67 @@ pub fn openFile(filePath: []const u8) error{ OpenError, ReadError, OutOfMemory }
     }
 
     addOpenedFile(openedFile);
+}
+
+fn openFolderRecursive(path: [:0]const u8) !types.FileSystemTree {
+    std.debug.print("openFolderRecursive with path: {s}\n", .{path});
+    const folderName = std.fs.path.basename(path);
+
+    const folderPathZ = try state.allocator.dupeZ(u8, path);
+    const folderNameZ = try state.allocator.dupeZ(u8, folderName);
+
+    var children = std.ArrayList(types.FileSystemTree).init(state.allocator);
+
+    var dir = try std.fs.openDirAbsolute(path, .{ .iterate = true });
+    defer dir.close();
+
+    var dirIter = dir.iterate();
+
+    while (dirIter.next()) |entry| {
+        if (entry) |nonNullEntry| {
+            if (nonNullEntry.kind != .directory and nonNullEntry.kind != .file) continue;
+
+            if (nonNullEntry.kind == .directory) {
+                const fullPathZ = try std.fs.path.joinZ(state.allocator, &[_][]const u8{ path, nonNullEntry.name });
+                try children.append(try openFolderRecursive(fullPathZ));
+                state.allocator.free(fullPathZ);
+            } else {
+                const nameZ: [:0]const u8 = try state.allocator.dupeZ(u8, nonNullEntry.name);
+                const fullPathZ: [:0]const u8 = try std.fs.path.joinZ(state.allocator, &[_][]const u8{ path, nonNullEntry.name });
+
+                try children.append(.{
+                    .name = nameZ,
+                    .path = fullPathZ,
+                    .type = .File,
+                    .children = std.ArrayList(types.FileSystemTree).init(state.allocator),
+                    .expanded = false,
+                });
+            }
+        } else {
+            break;
+        }
+    } else |err| {
+        std.log.err("Error with openFile: {any}", .{err});
+        return err;
+    }
+
+    return types.FileSystemTree{
+        .name = folderNameZ,
+        .path = folderPathZ,
+        .type = .Folder,
+        .children = children,
+        .expanded = false,
+    };
+}
+
+pub fn openFolder(folderPath: []const u8) !void {
+    state.currentlyDisplayedFileIdx = 0;
+
+    while (state.openedFiles.items.len > 0) {
+        removeFile(0);
+    }
+
+    const folderPathZ = try state.allocator.dupeZ(u8, folderPath);
+    state.openedDir = try openFolderRecursive(folderPathZ);
+    state.allocator.free(folderPathZ);
 }

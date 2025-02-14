@@ -271,14 +271,14 @@ pub fn main() !void {
             }
         }
 
-        { // Draw side bar
-            const sideBarRect = types.Recti32{
-                .x = 0,
-                .y = 39,
-                .width = 200,
-                .height = state.windowHeight - 39,
-            };
+        const sideBarRect = types.Recti32{
+            .x = 0,
+            .y = 39,
+            .width = 200,
+            .height = state.windowHeight - 39,
+        };
 
+        { // Draw side bar
             if (mouse.isMouseInRect(sideBarRect)) {
                 state.pointerType = .default;
             }
@@ -414,7 +414,7 @@ pub fn main() !void {
                     .items = @constCast(&[_]types.MenuItem{
                         .{ .name = "New File", .callback = &file.newFile },
                         .{ .name = "Open File", .callback = &file.openFileDialog },
-                        .{ .name = "X Open Folder", .callback = &dud },
+                        .{ .name = "Open Folder", .callback = &file.openFolderDialog },
                         .{ .name = "Save", .callback = &file.saveFile },
                         .{ .name = "Save As", .callback = &file.saveFileAs },
                     }),
@@ -460,7 +460,13 @@ pub fn main() !void {
         }
 
         { // Draw folder tree
-
+            if (state.openedDir) |dir| {
+                // TODO: Make recursive
+                for (dir.children.items) |_entry| {
+                    const entry: types.FileSystemTree = _entry;
+                    _ = entry;
+                }
+            }
         }
 
         { // Draw debug infos

@@ -47,6 +47,8 @@ pub var openedFiles: std.ArrayList(types.OpenedFile) = undefined;
 pub var currentlyDisplayedFileIdx: usize = 0;
 pub var movingScrollBarY: bool = false;
 
+pub var openedDir: ?types.FileSystemTree = null;
+
 pub var scrollVelocityY: f32 = 0.0;
 
 // Theme

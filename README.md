@@ -8,7 +8,7 @@
 ![CODE LETSGO](https://github.com/wAIfu-DEV/0Ed/blob/main/resources/readme-assets/code.gif)
 
 Roadmap:
-- Directory tree
+- Directory
 - Styling for many languages
 - Support for custom styling
 - Suggestions

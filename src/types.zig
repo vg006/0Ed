@@ -44,6 +44,19 @@ pub const OpenedFile = struct {
     scroll: rl.Vector2,
 };
 
+pub const FsType = enum(u8) {
+    Folder,
+    File,
+};
+
+pub const FileSystemTree = struct {
+    name: [:0]const u8,
+    path: [:0]const u8,
+    children: std.ArrayList(FileSystemTree),
+    type: FsType,
+    expanded: bool,
+};
+
 pub const TopBarMenu = enum(u8) {
     None = 0,
     File,
