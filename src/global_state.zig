@@ -6,6 +6,23 @@ const types = @import("types.zig");
 pub var allocator: std.mem.Allocator = undefined;
 
 // General state (window / input)
+pub var shouldRedraw: types.ShouldRedraw = .{
+    .topBar = false,
+    .sideBar = false,
+    .fileTabs = false,
+    .textEditor = false,
+};
+
+pub var shouldRedrawNext: types.ShouldRedraw = .{
+    .topBar = false,
+    .sideBar = false,
+    .fileTabs = false,
+    .textEditor = false,
+};
+
+pub var targetFps: i32 = 120;
+pub var currentTargetFps: i32 = 120;
+
 pub var inputBuffer: std.ArrayList(types.KeyChar) = undefined;
 pub var pressedKeys: std.ArrayList(types.PressedKeyState) = undefined;
 
@@ -87,37 +104,45 @@ pub const styles: []types.ExprColor = @constCast(&[_]types.ExprColor{
     },
 });
 
-pub const zigStyles: []types.Style = @constCast(&[_]types.Style{
+pub var zigStyles = [_]types.Style{
     .{
         .name = "comments",
         .expr = "//.*",
+        .regex = null,
     },
     .{
         .name = "numbers",
         .expr = "\\b\\d(\\d|\\.)*",
+        .regex = null,
     },
     .{
         .name = "strings",
         .expr = "\"[^\"]*\"",
+        .regex = null,
     },
     .{
         .name = "operators2",
         .expr = "\\.|\\(|\\)|\\[|\\]|{|}|,|;|:",
+        .regex = null,
     },
     .{
         .name = "operators",
         .expr = "=|-|\\+|\\*|\\/|>|<|&|!|?|\\|",
+        .regex = null,
     },
     .{
         .name = "keywords",
         .expr = "\\b(fn|bool|true|false|try|return|const|var|pub|while|for|if|else|orelse|defer|defererr|or|and|void|null|comptime)\\b",
+        .regex = null,
     },
     .{
         .name = "function",
         .expr = "@?\\w+\\s*\\(",
+        .regex = null,
     },
     .{
         .name = "parent",
         .expr = "\\w+\\.",
+        .regex = null,
     },
-});
+};

@@ -39,6 +39,9 @@ pub fn openFolderDialog() void {
 pub fn addOpenedFile(file: types.OpenedFile) void {
     if (state.openedFiles.append(file)) |_| {
         state.currentlyDisplayedFileIdx = state.openedFiles.items.len - 1;
+
+        state.shouldRedrawNext.fileTabs = true;
+        state.shouldRedrawNext.textEditor = true;
     } else |err| {
         std.log.err("Error with addOpenedFile: {any}", .{err});
     }
@@ -48,13 +51,16 @@ pub fn addOpenedFile(file: types.OpenedFile) void {
 pub fn displayFile(index: usize) void {
     if (index >= state.openedFiles.items.len) return;
     state.currentlyDisplayedFileIdx = index;
+
+    state.shouldRedrawNext.textEditor = true;
 }
 
 // Function called by button callback, cannot return error
 pub fn removeFile(index: usize) void {
     if (index >= state.openedFiles.items.len) return;
 
-    var file = &state.openedFiles.items[index];
+    var file = state.openedFiles.orderedRemove(index);
+    //var file = &state.openedFiles.items[index];
 
     if (state.currentlyDisplayedFileIdx >= index and state.currentlyDisplayedFileIdx > 0) {
         state.currentlyDisplayedFileIdx -= 1;
@@ -66,13 +72,20 @@ pub fn removeFile(index: usize) void {
         state.allocator.free(nonNullPath);
     }
 
-    for (file.lines.items) |untypedLine| {
-        var line: std.ArrayList(i32) = untypedLine;
+    for (file.lines.items) |_line| {
+        var line: std.ArrayList(i32) = _line;
         line.deinit();
     }
     file.lines.deinit();
 
-    _ = state.openedFiles.orderedRemove(index);
+    state.shouldRedrawNext.fileTabs = true;
+    state.shouldRedrawNext.textEditor = true;
+}
+
+pub fn removeAllFiles() void {
+    while (state.openedFiles.items.len > 0) {
+        removeFile(0);
+    }
 }
 
 fn writeFile(file: *types.OpenedFile) !void {
@@ -229,6 +242,7 @@ pub fn openFile(filePath: []const u8) error{ OpenError, ReadError, OutOfMemory }
 
             const lineList = std.ArrayList(types.CodePoint).init(state.allocator);
             try openedFile.lines.append(lineList);
+            try openedFile.lines.append(std.ArrayList(types.CodePoint).init(state.allocator));
             var lastList: *std.ArrayList(types.CodePoint) = &openedFile.lines.items[openedFile.lines.items.len - 1];
 
             try lastList.appendSlice(codepoints.items);

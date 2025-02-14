@@ -31,7 +31,7 @@ pub const Regex = struct {
     charLiteral: i32,
     children: ?std.ArrayList(Regex),
 
-    pub fn free(self: *Regex) void {
+    pub fn free(self: *const Regex) void {
         if (self.children) |c| {
             for (c.items) |re| {
                 re.free();
@@ -82,6 +82,8 @@ pub fn compileRegex(allocator: std.mem.Allocator, re: []const u8) !Regex {
     };
 
     var parentRegexStack: std.ArrayList(*Regex) = std.ArrayList(*Regex).init(allocator);
+    defer parentRegexStack.deinit();
+
     var currRegex: *Regex = &regex;
 
     var escaped: bool = false;
@@ -191,7 +193,7 @@ pub fn compileRegex(allocator: std.mem.Allocator, re: []const u8) !Regex {
             if (currRegex.type != .captureGroup) {
                 return error.RegexSyntax;
             }
-            currRegex = parentRegexStack.pop();
+            currRegex = parentRegexStack.pop().?;
             continue;
         }
         // Char set start
@@ -210,7 +212,7 @@ pub fn compileRegex(allocator: std.mem.Allocator, re: []const u8) !Regex {
             if (currRegex.type != .charSet and currRegex.type != .negatedCharSet) {
                 return error.RegexSyntax;
             }
-            currRegex = parentRegexStack.pop();
+            currRegex = parentRegexStack.pop().?;
             continue;
         }
         // String start or char set negation

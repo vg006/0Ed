@@ -49,7 +49,9 @@ fn collapseSelection(file: *types.OpenedFile) !void {
             );
             try line.appendSlice(line2.items);
 
-            _ = file.lines.orderedRemove(@intCast(cursorEnd.line));
+            const removedLine: std.ArrayList(i32) = file.lines.orderedRemove(@intCast(cursorEnd.line));
+            defer removedLine.deinit();
+
             file.cursorPos.end = null;
             return;
         }
@@ -73,7 +75,8 @@ fn collapseSelection(file: *types.OpenedFile) !void {
             try line.appendSlice(line2.items);
 
             for (@intCast(file.cursorPos.start.line)..@intCast(cursorEnd.line)) |_| {
-                _ = file.lines.orderedRemove(@intCast(file.cursorPos.start.line + 1));
+                const removedLine: std.ArrayList(i32) = file.lines.orderedRemove(@intCast(file.cursorPos.start.line + 1));
+                defer removedLine.deinit();
             }
             file.cursorPos.end = null;
             return;
@@ -94,8 +97,14 @@ pub fn getColorFromStyleName(name: []const u8) types.Rgb {
     return .{ constants.colorCodeFont.r, constants.colorCodeFont.g, constants.colorCodeFont.b };
 }
 
-pub fn handleFileInput(file: *types.OpenedFile) !void {
+pub fn handleFileInput(file: *types.OpenedFile) !bool {
     var keyIdx: usize = @subWithOverflow(state.inputBuffer.items.len, 1)[0];
+
+    // No input, return false to indicate no state change
+    if (keyIdx == std.math.maxInt(usize)) {
+        return false;
+    }
+
     while (keyIdx != std.math.maxInt(usize)) {
         // Get last key in input buffer
         const key: types.KeyChar = state.inputBuffer.items[keyIdx];
@@ -222,6 +231,109 @@ pub fn handleFileInput(file: *types.OpenedFile) !void {
             }
         }
     }
+    return true;
+}
+
+// Was extracted from drawFileContents, might have some duplicate code
+pub fn handleMouseInput(file: *types.OpenedFile, codeRect: types.Recti32) !bool {
+    var stateChanged = false;
+
+    const previousCursorPos = file.cursorPos;
+
+    const scrollOffset: i32 = @intFromFloat(file.scroll.y);
+
+    const codeRectLeftOffset: i32 = codeRect.x + constants.paddingSize + 80;
+
+    var textPos: rl.Vector2 = rl.Vector2{
+        .x = @floatFromInt(codeRectLeftOffset),
+        .y = 0.0,
+    };
+    var lineRect: types.Recti32 = types.Recti32{
+        .x = codeRect.x,
+        .y = 0.0,
+        .height = constants.lineHeight,
+        .width = codeRect.width,
+    };
+
+    const scrolledTop: i32 = codeRect.y + scrollOffset + constants.paddingSize;
+
+    const renderBoundTop: f32 = @floatFromInt(codeRect.y - constants.paddingSize);
+    const renderBoundBott: f32 = @floatFromInt(state.windowHeight + constants.paddingSize);
+
+    const firstLineIdx: usize = @intFromFloat(@max(0, @ceil((renderBoundTop - @as(f32, @floatFromInt(scrolledTop))) / @as(f32, @floatFromInt(constants.lineHeight)))));
+
+    var i: usize = firstLineIdx;
+
+    while (i < file.lines.items.len) : (i += 1) {
+        const idx: i32 = @intCast(i);
+        const line: std.ArrayList(i32) = file.lines.items[i];
+
+        const yPos: f32 = @floatFromInt(scrolledTop + (idx * constants.lineHeight));
+
+        // Cap the amount of lines displayed to those visible
+        if (yPos > renderBoundBott) break;
+
+        textPos.y = yPos;
+        lineRect.y = @intFromFloat(yPos);
+
+        // Handle cursor position change + range select
+        if (mouse.isMouseInRect(lineRect) and !state.movingScrollBarY) {
+            const relativeX: f32 = state.mousePosition.x - textPos.x;
+            const colWidthF: f32 = @floatFromInt(constants.colWidth);
+            var approximateColumn: i32 = @intFromFloat(@round(relativeX / colWidthF));
+
+            if (approximateColumn >= line.items.len) {
+                approximateColumn = @intCast(line.items.len);
+            }
+
+            if (approximateColumn < 0) {
+                approximateColumn = 0;
+            }
+
+            // Set cursor position
+            if (mouse.isJustLeftClick()) {
+                stateChanged = true;
+                file.cursorPos = types.CursorPosition{
+                    .start = .{
+                        .column = approximateColumn,
+                        .line = idx,
+                    },
+                    .end = null,
+                    .dragOrigin = null,
+                };
+            } else if (mouse.isLeftClickDown()) {
+                if (file.cursorPos.end) |_| {} else {
+                    file.cursorPos.dragOrigin = file.cursorPos.start;
+                }
+
+                const dragOrigin = file.cursorPos.dragOrigin.?;
+
+                const dragPos = types.TextPos{
+                    .column = approximateColumn,
+                    .line = idx,
+                };
+
+                // Make sure selecting in every direction works as intended
+                // if drag == prev pos we keep it as single char cursor
+                if (!std.meta.eql(file.cursorPos.start, dragPos)) {
+                    stateChanged = true;
+
+                    if (dragPos.line > dragOrigin.line or (dragPos.line == dragOrigin.line and dragPos.column > dragOrigin.column)) {
+                        file.cursorPos.start = dragOrigin;
+                        file.cursorPos.end = dragPos;
+                    } else {
+                        file.cursorPos.start = dragPos;
+                        file.cursorPos.end = dragOrigin;
+                    }
+                }
+
+                if (std.meta.eql(previousCursorPos, file.cursorPos)) {
+                    stateChanged = false;
+                }
+            }
+        }
+    }
+    return stateChanged;
 }
 
 pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void {
@@ -231,6 +343,10 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
     if (file.lines.items.len > std.math.maxInt(i32)) {
         return error.FileTooBig;
     }
+
+    var arena = std.heap.ArenaAllocator.init(state.allocator);
+    const alloc = arena.allocator();
+    defer arena.deinit();
 
     var scrollOffset: i32 = @intFromFloat(file.scroll.y);
 
@@ -244,7 +360,7 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
         .height = codeRect.height,
     };
 
-    {
+    { //
         const totalLinesSize: usize = file.lines.items.len * @as(usize, @intCast(constants.lineHeight)) + @as(usize, @intCast(codeRect.height)) - 20;
         const totalLinesSizeF: f32 = @floatFromInt(totalLinesSize);
 
@@ -313,57 +429,6 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
         textPos.y = yPos;
         lineRect.y = @intFromFloat(yPos);
 
-        // Handle cursor position change + range select
-        // Shouldn't be in here but this so much more convenient
-        if (mouse.isMouseInRect(lineRect) and !state.movingScrollBarY) {
-            const relativeX: f32 = state.mousePosition.x - textPos.x;
-            const colWidthF: f32 = @floatFromInt(constants.colWidth);
-            var approximateColumn: i32 = @intFromFloat(@round(relativeX / colWidthF));
-
-            if (approximateColumn >= line.items.len) {
-                approximateColumn = @intCast(line.items.len);
-            }
-
-            if (approximateColumn < 0) {
-                approximateColumn = 0;
-            }
-
-            // Set cursor position
-            if (mouse.isJustLeftClick()) {
-                file.cursorPos = types.CursorPosition{
-                    .start = .{
-                        .column = approximateColumn,
-                        .line = idx,
-                    },
-                    .end = null,
-                    .dragOrigin = null,
-                };
-            } else if (mouse.isLeftClickDown()) {
-                if (file.cursorPos.end) |_| {} else {
-                    file.cursorPos.dragOrigin = file.cursorPos.start;
-                }
-
-                const dragOrigin = file.cursorPos.dragOrigin.?;
-
-                const dragPos = types.TextPos{
-                    .column = approximateColumn,
-                    .line = idx,
-                };
-
-                // Make sure selecting in every direction works as intended
-                // if drag == prev pos we keep it as single char cursor
-                if (!std.meta.eql(file.cursorPos.start, dragPos)) {
-                    if (dragPos.line > dragOrigin.line or (dragPos.line == dragOrigin.line and dragPos.column > dragOrigin.column)) {
-                        file.cursorPos.start = dragOrigin;
-                        file.cursorPos.end = dragPos;
-                    } else {
-                        file.cursorPos.start = dragPos;
-                        file.cursorPos.end = dragOrigin;
-                    }
-                }
-            }
-        }
-
         // Draw cursor
         if (lineInSelection(file.cursorPos, idx)) {
             const cursorPos = file.cursorPos;
@@ -416,12 +481,15 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
 
         // TODO: handle styles
 
-        var styleStack = std.ArrayList(types.MatchedStyle).init(state.allocator);
-        defer styleStack.deinit();
+        var styleStack = std.ArrayList(types.MatchedStyle).init(alloc);
 
         for (state.zigStyles, 0..) |style, j| {
-            const re = try regex.compileRegex(state.allocator, style.expr);
-            const matches = try regex.getMatchesCodepoint(state.allocator, re, line.items);
+            const matches = try regex.getMatchesCodepoint(
+                alloc,
+                style.regex.?,
+                line.items,
+            );
+
             for (matches.items) |untypedMatch| {
                 const match: regex.ReMatch = untypedMatch;
                 try styleStack.append(.{
@@ -433,8 +501,7 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
             }
         }
 
-        var flattenedStyleStack = std.ArrayList(types.MatchedStyle).init(state.allocator);
-        defer flattenedStyleStack.deinit();
+        var flattenedStyleStack = std.ArrayList(types.MatchedStyle).init(alloc);
 
         try flattenedStyleStack.append(.{
             .style = null,
@@ -570,4 +637,25 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
     //    std.debug.print("                                                                     ", .{});
     //    std.debug.print("\rRendering file contents took: {d} mics", .{timeSpent});
     //}
+}
+
+pub fn drawEditorBackground(codeRect: types.Recti32) !void {
+    if (mouse.isMouseInRect(codeRect)) {
+        state.pointerType = .ibeam;
+    }
+
+    rl.drawRectangle(
+        codeRect.x,
+        codeRect.y,
+        codeRect.width,
+        codeRect.height,
+        constants.colorCodeBackground,
+    );
+    rl.drawRectangleLines(
+        codeRect.x,
+        codeRect.y,
+        codeRect.width,
+        codeRect.height,
+        constants.colorLines,
+    );
 }

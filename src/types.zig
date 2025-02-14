@@ -1,6 +1,15 @@
 const std = @import("std");
 const rl = @import("raylib");
 
+const regex = @import("regex_codepoint.zig");
+
+pub const ShouldRedraw = struct {
+    topBar: bool,
+    sideBar: bool,
+    fileTabs: bool,
+    textEditor: bool,
+};
+
 pub const Recti32 = struct {
     x: i32,
     y: i32,
@@ -83,6 +92,7 @@ pub const ExprColor = struct {
 pub const Style = struct {
     name: []const u8,
     expr: []const u8,
+    regex: ?regex.Regex,
 };
 
 pub const MatchedStyle = struct {
