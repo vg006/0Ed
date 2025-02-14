@@ -1,9 +1,14 @@
 const rl = @import("raylib");
 
-pub const scrollIncrement: f32 = 2.0;
-pub const scrollVelocityMultiplier: f32 = 10.0;
+pub const initialWindowWidth: i32 = 1280;
+pub const initialWindowHeight: i32 = 720;
 
-pub const keyPressRepeatFrameNb: usize = 30;
+pub const targetFpsHigh: i32 = 2000;
+pub const targetFpsLow: i32 = 10;
+
+pub const scrollIncrement: f32 = 2.0;
+pub const scrollVelocityMultiplier: f32 = 1000.0;
+pub const scrollDecayMultiplier: f32 = 20.0;
 
 pub const paddingSize: i32 = 10;
 

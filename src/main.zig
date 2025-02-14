@@ -1,7 +1,9 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const rl = @import("raylib");
 
 const state = @import("global_state.zig");
+const helper = @import("helper.zig");
 const constants = @import("constants.zig");
 const types = @import("types.zig");
 const button = @import("button.zig");
@@ -19,7 +21,11 @@ pub fn clearDataOnClose() void {
 pub fn closeWindow() void {
     rl.closeWindow();
     clearDataOnClose();
-    //_ = gpa.detectLeaks();
+
+    // Print leaked memory addresses at end of program
+    if (comptime builtin.mode == .Debug) {
+        _ = state.debugAllocator.detectLeaks();
+    }
     std.process.exit(0);
 }
 
@@ -38,11 +44,12 @@ pub fn buttonCbEdit() void {
 }
 
 pub fn main() !void {
-    state.allocator = std.heap.smp_allocator;
-
-    // Use this one when investigating memory leaks
-    // Refer to closeWindow for leak debug logs
-    // state.allocator = std.heap.DebugAllocator(.{}).init.allocator();
+    if (comptime builtin.mode == .Debug) {
+        state.debugAllocator = std.heap.DebugAllocator(.{}).init;
+        state.allocator = state.debugAllocator.allocator();
+    } else {
+        state.allocator = std.heap.smp_allocator;
+    }
 
     // Init global state buffers
     state.inputBuffer = std.ArrayList(types.KeyChar).init(state.allocator);
@@ -84,11 +91,15 @@ pub fn main() !void {
 
     { // Set raylib window flags
         rl.setConfigFlags(windowConfig);
-        rl.setTargetFPS(state.targetFps);
+        rl.setTargetFPS(constants.targetFpsHigh);
+
+        state.targetFps = constants.targetFpsHigh;
+        state.currentTargetFps = state.targetFps;
+
         rl.setExitKey(.null); // Remove ESC as exit key
     }
 
-    rl.initWindow(state.initialWindowWidth, state.initialWindowHeight, "0Ed");
+    rl.initWindow(constants.initialWindowWidth, constants.initialWindowHeight, "0Ed");
     defer rl.closeWindow();
 
     state.windowHeight = rl.getRenderHeight();
@@ -137,29 +148,28 @@ pub fn main() !void {
         }
     }
 
-    var frameCount: u64 = 0;
-
     // Main loop
-    while (!rl.windowShouldClose()) : (frameCount += 1) {
-        rl.beginDrawing();
-        defer rl.endDrawing();
-
+    while (!rl.windowShouldClose()) : (state.frameCount +%= 1) {
         { // Low CPU usage modes
             if (rl.isWindowHidden()) {
+                rl.waitTime(0.2);
                 continue;
             }
 
             if (rl.isWindowFocused()) {
-                state.targetFps = 120;
+                state.targetFps = constants.targetFpsHigh;
             } else {
-                state.targetFps = 20;
+                state.targetFps = constants.targetFpsLow;
             }
         }
+
+        rl.beginDrawing();
+        defer rl.endDrawing();
 
         { // Poll state changes
 
             // Refresh frames will allways trigger a full redraw of the screen.
-            const isRefreshFrame = frameCount % 60 == 0;
+            const isRefreshFrame = state.frameCount % 60 == 0;
 
             state.shouldRedraw = .{
                 .topBar = state.shouldRedrawNext.topBar or isRefreshFrame,
@@ -175,12 +185,14 @@ pub fn main() !void {
                 .textEditor = false,
             };
 
-            try keys.getInputBuffer();
+            try keys.pollInputBuffer();
 
-            if (state.scrollVelocityY < 0.001 and state.scrollVelocityY > -0.001) {
+            state.deltaTime = rl.getFrameTime();
+
+            if (helper.floatEq(state.scrollVelocityY, 0, 0.01)) {
                 state.scrollVelocityY = 0.0;
             } else {
-                state.scrollVelocityY /= 1.5;
+                state.scrollVelocityY /= 1 + (state.deltaTime * constants.scrollDecayMultiplier);
             }
 
             state.windowPosition = rl.getWindowPosition();
@@ -191,8 +203,8 @@ pub fn main() !void {
 
             state.prevMouseScreenPosition = state.mouseScreenPosition;
             state.mouseScreenPosition = rl.Vector2{
-                .x = state.windowPosition.x + state.mousePosition.x,
-                .y = state.windowPosition.y + state.mousePosition.y,
+                .x = @round(state.windowPosition.x + state.mousePosition.x),
+                .y = @round(state.windowPosition.y + state.mousePosition.y),
             };
 
             state.prevMouseLeftClick = state.mouseLeftClick;
@@ -204,9 +216,9 @@ pub fn main() !void {
             if (state.openedFiles.items.len > 0) {
                 var displayedFile = &state.openedFiles.items[state.currentlyDisplayedFileIdx];
 
-                state.scrollVelocityY += state.mouseWheelMove.y * constants.scrollVelocityMultiplier;
+                state.scrollVelocityY += (state.mouseWheelMove.y * constants.scrollVelocityMultiplier) * state.deltaTime;
 
-                if (state.scrollVelocityY > 0.001 or state.scrollVelocityY < -0.001) {
+                if (!helper.floatEq(state.scrollVelocityY, 0, 0.01)) {
                     state.shouldRedraw.textEditor = true;
                     state.shouldRedraw.fileTabs = true; // Needs redraw because of overlap
 
@@ -284,7 +296,6 @@ pub fn main() !void {
                 var offset: i32 = 0;
 
                 // TODO: Scroll tabs if the width > viewport width
-                // TODO: Way to close tab
 
                 var i: usize = 0;
                 while (i < state.openedFiles.items.len) {
@@ -362,8 +373,10 @@ pub fn main() !void {
         }
 
         { // Draw debug infos
+            const fps = rl.getFPS();
+
             var fpsBuff: [12:0]u8 = undefined;
-            _ = try std.fmt.bufPrintZ(&fpsBuff, "FPS:   {d}", .{rl.getFPS()});
+            _ = try std.fmt.bufPrintZ(&fpsBuff, "FPS:   {d}", .{fps});
 
             rl.drawTextEx(
                 state.uiFont,
@@ -424,7 +437,7 @@ pub fn main() !void {
             }
 
             var winBuff: [32:0]u8 = undefined;
-            _ = try std.fmt.bufPrintZ(&winBuff, "Render:{d}x{d}", .{ rl.getRenderWidth(), rl.getRenderHeight() });
+            _ = try std.fmt.bufPrintZ(&winBuff, "WSize: {d}x{d}", .{ rl.getRenderWidth(), rl.getRenderHeight() });
 
             rl.drawTextEx(
                 state.uiFont,
@@ -438,15 +451,51 @@ pub fn main() !void {
                 rl.Color.white,
             );
 
-            var win2Buff: [32:0]u8 = undefined;
-            _ = try std.fmt.bufPrintZ(&win2Buff, "Scale: {d}x{d}", .{ rl.getScreenWidth(), rl.getScreenHeight() });
+            const wpX: i32 = @intFromFloat(state.windowPosition.x);
+            const wpY: i32 = @intFromFloat(state.windowPosition.y);
+
+            var winPosBuff: [32:0]u8 = undefined;
+            _ = try std.fmt.bufPrintZ(&winPosBuff, "WPos:  {d}x{d}", .{ wpX, wpY });
 
             rl.drawTextEx(
                 state.uiFont,
-                &win2Buff,
+                &winPosBuff,
                 rl.Vector2{
                     .x = 5.0,
                     .y = @floatFromInt(constants.topBarHeight + 45),
+                },
+                15,
+                0,
+                rl.Color.white,
+            );
+
+            var mousePosBuff: [128:0]u8 = undefined;
+            _ = try std.fmt.bufPrintZ(&mousePosBuff, "Mouse: {d}x{d}", .{ rl.getMouseX(), rl.getMouseY() });
+
+            rl.drawTextEx(
+                state.uiFont,
+                &mousePosBuff,
+                rl.Vector2{
+                    .x = 5.0,
+                    .y = @floatFromInt(constants.topBarHeight + 55),
+                },
+                15,
+                0,
+                rl.Color.white,
+            );
+
+            const mspX: i32 = @intFromFloat(state.mouseScreenPosition.x);
+            const mspY: i32 = @intFromFloat(state.mouseScreenPosition.y);
+
+            var mouseScreenPosBuff: [128:0]u8 = undefined;
+            _ = try std.fmt.bufPrintZ(&mouseScreenPosBuff, "ScrPos:{d}x{d}", .{ mspX, mspY });
+
+            rl.drawTextEx(
+                state.uiFont,
+                &mouseScreenPosBuff,
+                rl.Vector2{
+                    .x = 5.0,
+                    .y = @floatFromInt(constants.topBarHeight + 65),
                 },
                 15,
                 0,
@@ -553,24 +602,38 @@ pub fn main() !void {
                 .height = topBarRect.height,
             };
 
-            // Move window while user is dragging top bar
-            if (state.movingWindow) {
-                const moveRight: f32 = state.mouseScreenPosition.x - state.prevMouseScreenPosition.x;
-                const moveBottom: f32 = state.mouseScreenPosition.y - state.prevMouseScreenPosition.y;
-
-                const newPosX: i32 = @intFromFloat(state.windowPosition.x + moveRight);
-                const newPosY: i32 = @intFromFloat(state.windowPosition.y + moveBottom);
-                rl.setWindowPosition(newPosX, newPosY);
-
-                // Update new positions
-                state.mousePosition = rl.getMousePosition();
-                state.windowPosition = rl.getWindowPosition();
-            }
-
             if (mouse.isMouseInRect(topBarMoveRect) and mouse.isJustLeftClick()) {
+                std.log.info("Started dragging.", .{});
                 state.movingWindow = true;
+                state.windowDragOrigin = state.mouseScreenPosition; // Store initial mouse position
+
+                state.windowDragOffset = rl.Vector2{
+                    .x = state.windowPosition.x - state.windowDragOrigin.x,
+                    .y = state.windowPosition.y - state.windowDragOrigin.y,
+                };
             } else if (!mouse.isLeftClickDown()) {
                 state.movingWindow = false;
+            }
+
+            // Needs fps cap for moving the window around
+            // Removing it causes weird jitterness that gets worse with higher
+            // refresh rates.
+            // I honestly have no idea why this happens but it starts around 80FPS
+            const refreshFrame = state.currentTargetFps <= 60 or
+                state.frameCount % @as(u64, @intCast(@divTrunc(state.currentTargetFps, 60))) == 0;
+
+            if (refreshFrame) {
+                if (state.movingWindow) {
+                    const movedRight: f32 = state.mouseScreenPosition.x - state.windowDragOrigin.x;
+                    const movedBottom: f32 = state.mouseScreenPosition.y - state.windowDragOrigin.y;
+
+                    const newPosX: f32 = state.windowDragOrigin.x + movedRight + state.windowDragOffset.x;
+                    const newPosY: f32 = state.windowDragOrigin.y + movedBottom + state.windowDragOffset.y;
+
+                    const iX: i32 = @intFromFloat(newPosX);
+                    const iY: i32 = @intFromFloat(newPosY);
+                    rl.setWindowPosition(iX, iY);
+                }
             }
         }
 
@@ -584,7 +647,7 @@ pub fn main() !void {
                     .items = @constCast(&[_]types.MenuItem{
                         .{ .name = "New File", .callback = &file.newFile },
                         .{ .name = "Open File", .callback = &file.openFileDialog },
-                        .{ .name = "X Open Folder", .callback = &dud },
+                        .{ .name = "Open Folder", .callback = &file.openFolderDialog },
                         .{ .name = "Save", .callback = &file.saveFile },
                         .{ .name = "Save As", .callback = &file.saveFileAs },
                     }),
@@ -603,8 +666,8 @@ pub fn main() !void {
                 },
             };
 
-            if (menuItems) |untypedMenu| {
-                const menu: types.Menu = untypedMenu;
+            if (menuItems) |_menu| {
+                const menu: types.Menu = _menu;
 
                 // Draw menu buttons
                 for (menu.items, 0..) |item, i| {
@@ -630,7 +693,13 @@ pub fn main() !void {
         }
 
         { // Draw folder tree
-
+            if (state.openedDir) |dir| {
+                // TODO: Make recursive
+                for (dir.children.items) |_entry| {
+                    const entry: types.FileSystemTree = _entry;
+                    _ = entry;
+                }
+            }
         }
 
         if (state.targetFps != state.currentTargetFps) {

@@ -3,7 +3,7 @@ const std = @import("std");
 const shouldDebugLog = false;
 
 fn debugLog(comptime fmt: []const u8, args: anytype) void {
-    if (!shouldDebugLog) return;
+    if (comptime !shouldDebugLog) return;
     std.log.debug(fmt, args);
 }
 
@@ -27,11 +27,13 @@ const ExprType = enum(u8) {
 };
 
 pub const Regex = struct {
-    type: ExprType,
-    charLiteral: i32,
     children: ?std.ArrayList(Regex),
+    charLiteral: i32,
+    type: ExprType,
 
-    pub fn free(self: *const Regex) void {
+    /// Frees the memory allocated by the compilation of the Regex.
+    /// Invalidates the regex.
+    pub fn deinit(self: *const Regex) void {
         if (self.children) |c| {
             for (c.items) |re| {
                 re.free();
@@ -58,6 +60,7 @@ pub const Regex = struct {
         std.debug.print("\n", .{});
     }
 
+    /// Print the Regex structure as a tree to stdout.
     pub fn print(self: *const Regex, allocator: std.mem.Allocator) !void {
         std.debug.print("Regex tree:\n{any} {{\n", .{self.type});
         if (self.children) |c| {
@@ -69,11 +72,16 @@ pub const Regex = struct {
     }
 };
 
+/// Portion of the string that was matched by the RegEx.
+/// `start` is inclusive and `end` is exclusive.
 pub const ReMatch = struct {
     start: usize,
     end: usize,
 };
 
+/// Compiles a regular expression (string) to a Regex struct
+///
+/// Consumer is responsible for call to `deinit` of the Regex
 pub fn compileRegex(allocator: std.mem.Allocator, re: []const u8) !Regex {
     var regex: Regex = Regex{
         .type = .root,

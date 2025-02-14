@@ -6,7 +6,8 @@ const types = @import("types.zig");
 const state = @import("global_state.zig");
 const toCodepoint = @import("char_to_codepoint.zig");
 
-// Function called by button callback, cannot return error
+/// Opens a OS specific file dialog and opens selected file in editor.
+/// Silently fails if user cancels or errors.
 pub fn openFileDialog() void {
     // TODO: default path should be CWD
     if (nfd.openFileDialog(null, null)) |path| {
@@ -21,7 +22,8 @@ pub fn openFileDialog() void {
     }
 }
 
-// Function called by button callback, cannot return error
+/// Opens a OS specific folder dialog and opens selected folder as CWD.
+/// Silently fails if user cancels or errors.
 pub fn openFolderDialog() void {
     // TODO: default path should be CWD
     if (nfd.openFolderDialog(null)) |path| {
@@ -36,6 +38,8 @@ pub fn openFolderDialog() void {
     }
 }
 
+/// Adds a file to the list of opened files and displays it in editor.
+/// Usually called by procedures inside the `file.zig` file.
 pub fn addOpenedFile(file: types.OpenedFile) void {
     if (state.openedFiles.append(file)) |_| {
         state.currentlyDisplayedFileIdx = state.openedFiles.items.len - 1;
@@ -47,7 +51,8 @@ pub fn addOpenedFile(file: types.OpenedFile) void {
     }
 }
 
-// Function called by button callback, cannot return error
+/// Displays one of the opened files using its index in `state.openedFiles`
+/// Silently fails if index is out of bounds.
 pub fn displayFile(index: usize) void {
     if (index >= state.openedFiles.items.len) return;
     state.currentlyDisplayedFileIdx = index;
@@ -55,12 +60,13 @@ pub fn displayFile(index: usize) void {
     state.shouldRedrawNext.textEditor = true;
 }
 
-// Function called by button callback, cannot return error
+/// Removes one of the opened files using its index and frees its memory.
 pub fn removeFile(index: usize) void {
+
+    // TODO: Check for changes and ask user with modal to confirm
     if (index >= state.openedFiles.items.len) return;
 
     var file = state.openedFiles.orderedRemove(index);
-    //var file = &state.openedFiles.items[index];
 
     if (state.currentlyDisplayedFileIdx >= index and state.currentlyDisplayedFileIdx > 0) {
         state.currentlyDisplayedFileIdx -= 1;
@@ -82,13 +88,20 @@ pub fn removeFile(index: usize) void {
     state.shouldRedrawNext.textEditor = true;
 }
 
+/// Removes all currently opened files.
 pub fn removeAllFiles() void {
     while (state.openedFiles.items.len > 0) {
         removeFile(0);
     }
 }
 
+/// Writes the contents of the file, as well as its modifications, to disk.
+///
+/// Uses a bufferd writer to reduce the amounts of syscalls, not sure if there
+/// is a case where this isn't optimal.
 fn writeFile(file: *types.OpenedFile) !void {
+
+    // TODO: Display modals in case of error.
     if (file.path == null) return;
 
     const maybeFile = std.fs.cwd().openFile(
@@ -121,8 +134,12 @@ fn writeFile(file: *types.OpenedFile) !void {
     try bufWriter.flush();
 }
 
-// Function called by button callback, cannot return error
+/// Displays OS specific "Save As" dialog and writes currently displayed file to disk.
+///
+/// Silently fails if user cancels or errors.
 pub fn saveFileAs() void {
+
+    // TODO: Display modals in case of error.
     if (state.openedFiles.items.len == 0) return;
 
     var currentFile = state.openedFiles.items[state.currentlyDisplayedFileIdx];
@@ -137,7 +154,10 @@ pub fn saveFileAs() void {
     }
 }
 
-// Function called by button callback, cannot return error
+/// Writes currently displayed file to disk.
+/// Displays OS specific "Save As" dialog if is new unsaved file.
+///
+/// Silently fails if user cancels or errors.
 pub fn saveFile() void {
     if (state.openedFiles.items.len == 0) return;
 
@@ -152,7 +172,9 @@ pub fn saveFile() void {
     }
 }
 
-// Function called by button callback, cannot return error
+/// Adds a new empty file to the list of opened files and displays it in editor.
+///
+/// "Save As" dialog will appear on save.
 pub fn newFile() void {
     const nameZ = state.allocator.dupeZ(u8, "NewFile.txt") catch |err| {
         std.log.err("Error with newFile: {any}", .{err});
@@ -182,6 +204,8 @@ pub fn newFile() void {
     addOpenedFile(openedFile);
 }
 
+/// Opens a file using an absolute path, adds it to the list of opened files
+/// and displays it in editor.
 pub fn openFile(filePath: []const u8) error{ OpenError, ReadError, OutOfMemory }!void {
     const maxFileSize = @as(usize, 0) -% 1;
 
@@ -233,15 +257,19 @@ pub fn openFile(filePath: []const u8) error{ OpenError, ReadError, OutOfMemory }
         if (maybeLine) |line| {
             defer state.allocator.free(line);
 
-            const codepoints = try toCodepoint.charToCodepoint(
+            var codepoints = try toCodepoint.charToCodepoint(
                 state.allocator,
                 line,
             );
-
             defer codepoints.deinit();
 
-            const lineList = std.ArrayList(types.CodePoint).init(state.allocator);
-            try openedFile.lines.append(lineList);
+            if (codepoints.items.len > 0) {
+                // Remove \r on windows platforms
+                if (codepoints.items[codepoints.items.len - 1] == @as(i32, '\r')) {
+                    _ = codepoints.pop();
+                }
+            }
+
             try openedFile.lines.append(std.ArrayList(types.CodePoint).init(state.allocator));
             var lastList: *std.ArrayList(types.CodePoint) = &openedFile.lines.items[openedFile.lines.items.len - 1];
 

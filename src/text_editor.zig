@@ -98,7 +98,7 @@ pub fn getColorFromStyleName(name: []const u8) types.Rgb {
 }
 
 pub fn handleFileInput(file: *types.OpenedFile) !bool {
-    var keyIdx: usize = @subWithOverflow(state.inputBuffer.items.len, 1)[0];
+    var keyIdx: usize = state.inputBuffer.items.len -% 1;
 
     // No input, return false to indicate no state change
     if (keyIdx == std.math.maxInt(usize)) {
@@ -108,7 +108,7 @@ pub fn handleFileInput(file: *types.OpenedFile) !bool {
     while (keyIdx != std.math.maxInt(usize)) {
         // Get last key in input buffer
         const key: types.KeyChar = state.inputBuffer.items[keyIdx];
-        keyIdx = @subWithOverflow(keyIdx, 1)[0];
+        keyIdx -%= 1;
 
         // Char is UTF8 and as such is stored as a codepoint (i32)
         var char: i32 = 0;

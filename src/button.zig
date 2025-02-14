@@ -5,6 +5,9 @@ const mouse = @import("mouse.zig");
 const state = @import("global_state.zig");
 const constants = @import("constants.zig");
 
+/// Draws a button.
+///
+/// Immediatly executes the callback if the user just clicked the button.
 pub fn drawButton(text: [*:0]const u8, fontSize: f32, rect: types.Recti32, padding: types.Vec2i32, callback: *const fn () void) void {
     const hovering = mouse.isMouseInRect(rect);
 
@@ -45,6 +48,7 @@ pub fn drawButton(text: [*:0]const u8, fontSize: f32, rect: types.Recti32, paddi
     );
 }
 
+/// Same as `drawButton`, but with an argument to the callback function.
 pub fn drawButtonArg(text: [*:0]const u8, fontSize: f32, rect: types.Recti32, padding: types.Vec2i32, arg: anytype, callback: *const fn (@TypeOf(arg)) void) void {
     const hovering = mouse.isMouseInRect(rect);
 
