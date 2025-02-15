@@ -429,7 +429,7 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
         textPos.y = yPos;
         lineRect.y = @intFromFloat(yPos);
 
-        // Draw cursor
+        // Draw cursor if is present in line
         if (lineInSelection(file.cursorPos, idx)) {
             const cursorPos = file.cursorPos;
 

@@ -66,6 +66,11 @@ pub var windowWidth: i32 = 1280;
 /// Modifying without resizing is useless
 pub var windowHeight: i32 = 720;
 
+/// Whether the window is maximized. Do not modify.
+pub var windowMaximized: bool = false;
+/// Size of the window before it was maximized. Do not modify.
+pub var windowSizeAndPosBeforeMaximized: types.Recti32 = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
+
 /// Whether the window of the program should be moved along with the mouse.
 /// Handled inside main loop, do not modify.
 pub var movingWindow: bool = false;

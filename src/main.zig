@@ -12,36 +12,7 @@ const editor = @import("text_editor.zig");
 const file = @import("file.zig");
 const keys = @import("keys.zig");
 const regex = @import("regex_codepoint.zig");
-
-pub fn clearDataOnClose() void {
-    file.removeAllFiles();
-    state.openedFiles.deinit();
-}
-
-pub fn closeWindow() void {
-    rl.closeWindow();
-    clearDataOnClose();
-
-    // Print leaked memory addresses at end of program
-    if (comptime builtin.mode == .Debug) {
-        _ = state.debugAllocator.detectLeaks();
-    }
-    std.process.exit(0);
-}
-
-pub fn dud() void {}
-
-pub fn dudArg(arg: anytype) void {
-    _ = arg;
-}
-
-pub fn buttonCbFile() void {
-    state.topBarMenuOpened = types.TopBarMenu.File;
-}
-
-pub fn buttonCbEdit() void {
-    state.topBarMenuOpened = types.TopBarMenu.Edit;
-}
+const window = @import("window.zig");
 
 pub fn main() !void {
     if (comptime builtin.mode == .Debug) {
@@ -80,7 +51,7 @@ pub fn main() !void {
 
     const windowConfig = rl.ConfigFlags{
         .window_always_run = true,
-        .window_resizable = false,
+        .window_resizable = true,
         .window_transparent = false,
         .window_undecorated = true,
         .vsync_hint = false,
@@ -375,7 +346,7 @@ pub fn main() !void {
         { // Draw debug infos
             const fps = rl.getFPS();
 
-            var fpsBuff: [12:0]u8 = undefined;
+            var fpsBuff: [32:0]u8 = undefined;
             _ = try std.fmt.bufPrintZ(&fpsBuff, "FPS:   {d}", .{fps});
 
             rl.drawTextEx(
@@ -393,14 +364,14 @@ pub fn main() !void {
             if (state.openedFiles.items.len > 0) {
                 const cursorPos = state.openedFiles.items[state.currentlyDisplayedFileIdx].cursorPos;
 
-                var cursorStartBuff: [128:0]u8 = undefined;
+                var cursorStartBuff: [32:0]u8 = undefined;
                 _ = try std.fmt.bufPrintZ(
                     &cursorStartBuff,
                     "Start: Ln:{any} Col:{any}",
                     .{ cursorPos.start.line + 1, cursorPos.start.column + 1 },
                 );
 
-                var cursorEndBuff: [128:0]u8 = undefined;
+                var cursorEndBuff: [32:0]u8 = undefined;
 
                 if (cursorPos.end) |_| {
                     _ = try std.fmt.bufPrintZ(
@@ -469,7 +440,7 @@ pub fn main() !void {
                 rl.Color.white,
             );
 
-            var mousePosBuff: [128:0]u8 = undefined;
+            var mousePosBuff: [32:0]u8 = undefined;
             _ = try std.fmt.bufPrintZ(&mousePosBuff, "Mouse: {d}x{d}", .{ rl.getMouseX(), rl.getMouseY() });
 
             rl.drawTextEx(
@@ -487,7 +458,7 @@ pub fn main() !void {
             const mspX: i32 = @intFromFloat(state.mouseScreenPosition.x);
             const mspY: i32 = @intFromFloat(state.mouseScreenPosition.y);
 
-            var mouseScreenPosBuff: [128:0]u8 = undefined;
+            var mouseScreenPosBuff: [32:0]u8 = undefined;
             _ = try std.fmt.bufPrintZ(&mouseScreenPosBuff, "ScrPos:{d}x{d}", .{ mspX, mspY });
 
             rl.drawTextEx(
@@ -589,7 +560,37 @@ pub fn main() !void {
                         .x = 19,
                         .y = 3,
                     },
-                    &closeWindow,
+                    &window.closeWindow,
+                );
+                button.drawButton(
+                    "[]",
+                    22,
+                    types.Recti32{
+                        .x = state.windowWidth - 99,
+                        .y = 0,
+                        .height = topBarRect.height,
+                        .width = 50,
+                    },
+                    types.Vec2i32{
+                        .x = 15,
+                        .y = 8,
+                    },
+                    &window.toggleMaximizeWindow,
+                );
+                button.drawButton(
+                    "__",
+                    22,
+                    types.Recti32{
+                        .x = state.windowWidth - 149,
+                        .y = 0,
+                        .height = topBarRect.height,
+                        .width = 50,
+                    },
+                    types.Vec2i32{
+                        .x = 15,
+                        .y = 8,
+                    },
+                    &window.minimizeWindow,
                 );
 
                 rl.drawTexture(iconTexture, 7, 5, .white);
@@ -598,9 +599,17 @@ pub fn main() !void {
             const topBarMoveRect = types.Recti32{
                 .x = 119 + constants.topBarHeight + 5, // width of buttons
                 .y = 0,
-                .width = state.windowWidth - (119 + constants.topBarHeight + 5) - 50, // window width - width of buttons
+                .width = state.windowWidth - (119 + constants.topBarHeight + 5) - 100, // window width - width of buttons
                 .height = topBarRect.height,
             };
+
+            // rl.drawRectangle(
+            //     topBarMoveRect.x,
+            //     topBarMoveRect.y,
+            //     topBarMoveRect.width,
+            //     topBarMoveRect.height,
+            //     rl.Color.red,
+            // );
 
             if (mouse.isMouseInRect(topBarMoveRect) and mouse.isJustLeftClick()) {
                 std.log.info("Started dragging.", .{});
@@ -709,5 +718,19 @@ pub fn main() !void {
 
         rl.setMouseCursor(state.pointerType);
     }
-    closeWindow();
+    window.closeWindow();
+}
+
+pub fn dud() void {}
+
+pub fn dudArg(arg: anytype) void {
+    _ = arg;
+}
+
+pub fn buttonCbFile() void {
+    state.topBarMenuOpened = types.TopBarMenu.File;
+}
+
+pub fn buttonCbEdit() void {
+    state.topBarMenuOpened = types.TopBarMenu.Edit;
 }
