@@ -57,6 +57,7 @@ pub fn displayFile(index: usize) void {
     if (index >= state.openedFiles.items.len) return;
     state.currentlyDisplayedFileIdx = index;
 
+    state.shouldRedrawNext.fileTabs = true;
     state.shouldRedrawNext.textEditor = true;
 }
 
@@ -93,6 +94,8 @@ pub fn removeAllFiles() void {
     while (state.openedFiles.items.len > 0) {
         removeFile(0);
     }
+    state.shouldRedrawNext.fileTabs = true;
+    state.shouldRedrawNext.textEditor = true;
 }
 
 /// Writes the contents of the file, as well as its modifications, to disk.
@@ -185,6 +188,11 @@ pub fn newFile() void {
         .path = null,
         .name = nameZ,
         .lines = std.ArrayList(std.ArrayList(i32)).init(state.allocator),
+        .styleCache = .{
+            .stylesPerLines = std.ArrayList(?std.ArrayList(types.MatchedColor)).init(state.allocator),
+            .cachedLinesNb = 0,
+            .valid = true,
+        },
         .cursorPos = types.CursorPosition{
             .start = .{
                 .column = 0,
@@ -200,6 +208,10 @@ pub fn newFile() void {
     if (openedFile.lines.append(std.ArrayList(i32).init(state.allocator))) |_| {} else |err| {
         std.log.err("Error with newFile: {any}", .{err});
     }
+
+    openedFile.styleCache.resize(openedFile.lines.items.len) catch |err| {
+        std.log.err("Error with style cache in newFile: {any}", .{err});
+    };
 
     addOpenedFile(openedFile);
 }
@@ -218,6 +230,11 @@ pub fn openFile(filePath: []const u8) error{ OpenError, ReadError, OutOfMemory }
         .path = filePathZ,
         .name = fileNameZ,
         .lines = std.ArrayList(std.ArrayList(i32)).init(state.allocator),
+        .styleCache = .{
+            .stylesPerLines = std.ArrayList(?std.ArrayList(types.MatchedColor)).init(state.allocator),
+            .cachedLinesNb = 0,
+            .valid = true,
+        },
         .cursorPos = types.CursorPosition{
             .start = .{
                 .column = 0,
@@ -290,6 +307,8 @@ pub fn openFile(filePath: []const u8) error{ OpenError, ReadError, OutOfMemory }
             std.log.err("Error with openFile: {any}", .{err});
         }
     }
+
+    try openedFile.styleCache.resize(openedFile.lines.items.len);
 
     addOpenedFile(openedFile);
 }

@@ -50,7 +50,7 @@ pub fn pollInputBuffer() !void {
     for (state.pressedKeys.items) |keyState| {
         if (keyState.pressedFrames == 0) {
             try state.inputBuffer.append(keyState.keyChar);
-        } else if (keyState.pressedFrames > initialRepeatFrameAmount and keyState.pressedFrames % repeatFrameInterval == 0) {
+        } else if (keyState.pressedFrames >= initialRepeatFrameAmount and keyState.pressedFrames % repeatFrameInterval == 0) {
             try state.inputBuffer.append(keyState.keyChar);
         }
     }

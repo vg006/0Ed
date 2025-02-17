@@ -43,6 +43,11 @@ pub var frameCount: usize = 0;
 pub var targetFps: i32 = 120;
 /// Do not modify.
 pub var currentTargetFps: i32 = 120;
+// Ms/frame of the current target FPS. Do not modify.
+pub var currentMsPerFrame: usize = @intFromFloat((1.0 / 120.0) * 1000.0);
+// Frames per refresh interval
+// Must be a power of two for fast modulo (bit shift) op
+pub var forceRefreshIntervalFrames: usize = std.math.ceilPowerOfTwoAssert(usize, @intFromFloat((500.0 / 1000.0) * 120.0));
 
 /// Buffer of keys to handle by the program. Is cleared and updated each frame,
 /// do not modify.
@@ -67,36 +72,38 @@ pub var windowWidth: i32 = 1280;
 pub var windowHeight: i32 = 720;
 
 /// Whether the window is maximized. Do not modify.
-pub var windowMaximized: bool = false;
+pub var windowMaximized = false;
 /// Size of the window before it was maximized. Do not modify.
-pub var windowSizeAndPosBeforeMaximized: types.Recti32 = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
+pub var windowSizeAndPosBeforeMaximized = types.Recti32{ .x = 0, .y = 0, .width = 0, .height = 0 };
 
 /// Whether the window of the program should be moved along with the mouse.
 /// Handled inside main loop, do not modify.
-pub var movingWindow: bool = false;
+pub var movingWindow = false;
 /// Current window position, do not modify without user input.
 /// Modifying without moving window is useless
-pub var windowPosition: rl.Vector2 = rl.Vector2{ .x = 0, .y = 0 };
+pub var windowPosition = rl.Vector2{ .x = 0, .y = 0 };
 /// Handled inside main loop, do not modify.
-pub var windowDragOrigin: rl.Vector2 = rl.Vector2{ .x = 0, .y = 0 };
+pub var windowDragOrigin = rl.Vector2{ .x = 0, .y = 0 };
 /// Handled inside main loop, do not modify.
-pub var windowDragOffset: rl.Vector2 = rl.Vector2{ .x = 0, .y = 0 };
+pub var windowDragOffset = rl.Vector2{ .x = 0, .y = 0 };
 
 /// Movement of the mouse's wheel during this frame. Do not modify.
-pub var mouseWheelMove: rl.Vector2 = rl.Vector2{ .x = 0, .y = 0 };
+pub var mouseWheelMove = rl.Vector2{ .x = 0, .y = 0 };
 /// Current position of the mouse relative to window. Do not modify.
-pub var mousePosition: rl.Vector2 = rl.Vector2{ .x = 0, .y = 0 };
+pub var mousePosition = rl.Vector2{ .x = 0, .y = 0 };
+/// Current position of the mouse relative to window. Do not modify.
+pub var mousePosi32 = types.Vec2i32{ .x = 0, .y = 0 };
 /// Position of the mouse during the previous frame. Do not modify.
-pub var prevMousePosition: rl.Vector2 = rl.Vector2{ .x = 0, .y = 0 };
+pub var prevMousePosition = rl.Vector2{ .x = 0, .y = 0 };
 
 /// Current position of the mouse relative to the monitor.
 /// This may not be accurate if the mouse is outside the bounds of the window.
 /// Do not modify.
-pub var mouseScreenPosition: rl.Vector2 = rl.Vector2{ .x = 0, .y = 0 };
+pub var mouseScreenPosition = rl.Vector2{ .x = 0, .y = 0 };
 /// Position of the mouse relative to the monitor during the previous frame.
 /// This may not be accurate if the mouse is outside the bounds of the window.
 /// Do not modify.
-pub var prevMouseScreenPosition: rl.Vector2 = rl.Vector2{ .x = 0, .y = 0 };
+pub var prevMouseScreenPosition = rl.Vector2{ .x = 0, .y = 0 };
 
 /// Whether the left click was pressed this frame. Do not modify.
 /// To know if the left click was just pressed, use `mouse.isJustLeftClick()`
@@ -164,6 +171,10 @@ pub const styles: []types.ExprColor = @constCast(&[_]types.ExprColor{
         .rgb = .{ 230, 155, 80 },
     },
     .{
+        .name = "builtin",
+        .rgb = .{ 110, 195, 255 },
+    },
+    .{
         .name = "function",
         .rgb = .{ 210, 145, 250 },
     },
@@ -196,17 +207,22 @@ pub var zigStyles = [_]types.Style{
     },
     .{
         .name = "operators",
-        .expr = "=|-|\\+|\\*|\\/|>|<|&|!|?|\\|%",
+        .expr = "=|-|\\+|\\*|\\/|>|<|&|!|?|\\||%",
         .regex = null,
     },
     .{
         .name = "keywords",
-        .expr = "\\b(fn|bool|true|false|try|return|const|var|pub|while|for|if|else|orelse|defer|defererr|or|and|void|null|comptime)\\b",
+        .expr = "\\b(fn|bool|true|false|try|return|const|var|pub|while|for|if|else|orelse|defer|defererr|or|and|void|null|comptime|inline)\\b",
+        .regex = null,
+    },
+    .{
+        .name = "builtin",
+        .expr = "@\\w+\\s*\\(",
         .regex = null,
     },
     .{
         .name = "function",
-        .expr = "@?\\w+\\s*\\(",
+        .expr = "\\w+\\s*\\(",
         .regex = null,
     },
     .{

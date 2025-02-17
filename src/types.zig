@@ -45,14 +45,6 @@ pub const CursorPosition = struct {
     dragOrigin: ?TextPos,
 };
 
-pub const OpenedFile = struct {
-    name: [:0]const u8,
-    path: ?[:0]const u8,
-    lines: std.ArrayList(std.ArrayList(CodePoint)),
-    cursorPos: CursorPosition,
-    scroll: rl.Vector2,
-};
-
 pub const FsType = enum(u8) {
     Folder,
     File,
@@ -97,7 +89,76 @@ pub const Style = struct {
 
 pub const MatchedStyle = struct {
     style: ?Style,
-    priority: i32,
-    start: i32,
-    end: i32,
+    priority: usize,
+    start: usize,
+    end: usize,
+};
+
+pub const MatchedColor = struct {
+    start: usize,
+    end: usize,
+    priority: usize,
+    color: Rgb,
+};
+
+pub const StyleCache = struct {
+    stylesPerLines: std.ArrayList(?std.ArrayList(MatchedColor)),
+    cachedLinesNb: usize,
+    valid: bool,
+
+    pub fn resize(self: *StyleCache, size: usize) !void {
+        const previousSize = self.stylesPerLines.items.len;
+
+        if (previousSize != size) {
+            try self.stylesPerLines.resize(size);
+        }
+
+        if (previousSize < size) {
+            for (previousSize..size) |i| {
+                self.stylesPerLines.items[i] = null;
+            }
+        }
+        self.invalidate();
+    }
+
+    pub fn invalidate(self: *StyleCache) void {
+        if (!self.valid) return;
+
+        for (self.stylesPerLines.items, 0..) |line, i| {
+            if (line) |nonNullLine| {
+                nonNullLine.deinit();
+            }
+            self.stylesPerLines.items[i] = null;
+        }
+        self.cachedLinesNb = 0;
+        self.valid = false;
+    }
+
+    pub fn invalidateLine(self: *StyleCache, index: usize) void {
+        if (!self.valid) return;
+
+        if (self.stylesPerLines.items[index]) |nonNullLine| {
+            nonNullLine.deinit();
+        }
+        self.stylesPerLines.items[index] = null;
+        self.cachedLinesNb -%= 1;
+    }
+
+    pub fn deinit(self: *StyleCache) void {
+        for (self.stylesPerLines.items) |line| {
+            if (line) |nonNullLine| {
+                nonNullLine.deinit();
+            }
+        }
+        self.stylesPerLines.deinit();
+    }
+};
+
+pub const OpenedFile = struct {
+    name: [:0]const u8,
+    path: ?[:0]const u8,
+    lines: std.ArrayList(std.ArrayList(CodePoint)),
+    styleCache: StyleCache,
+    cursorPos: CursorPosition,
+    scroll: rl.Vector2,
 };

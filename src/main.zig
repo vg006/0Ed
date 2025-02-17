@@ -15,6 +15,7 @@ const regex = @import("regex_codepoint.zig");
 const window = @import("window.zig");
 
 pub fn main() !void {
+    // ---- Conditional allocator Release/Debug ----
     if (comptime builtin.mode == .Debug) {
         state.debugAllocator = std.heap.DebugAllocator(.{}).init;
         state.allocator = state.debugAllocator.allocator();
@@ -22,11 +23,12 @@ pub fn main() !void {
         state.allocator = std.heap.smp_allocator;
     }
 
-    // Init global state buffers
-    state.inputBuffer = std.ArrayList(types.KeyChar).init(state.allocator);
-    state.pressedKeys = std.ArrayList(types.PressedKeyState).init(state.allocator);
-    state.openedFiles = std.ArrayList(types.OpenedFile).init(state.allocator);
-    state.fontCharset = std.ArrayList(types.CodePoint).init(state.allocator);
+    { // ---- Init global state buffers ----
+        state.inputBuffer = std.ArrayList(types.KeyChar).init(state.allocator);
+        state.pressedKeys = std.ArrayList(types.PressedKeyState).init(state.allocator);
+        state.openedFiles = std.ArrayList(types.OpenedFile).init(state.allocator);
+        state.fontCharset = std.ArrayList(types.CodePoint).init(state.allocator);
+    }
 
     // Reads charset file, and creates codepoints out of each char.
     // This is needed as Raylib expects a list of characters the loaded font can
@@ -39,6 +41,7 @@ pub fn main() !void {
             "./resources/fonts/font_charset.txt",
             std.math.maxInt(u64),
         );
+        defer state.allocator.free(charSet);
         var it = std.unicode.Utf8Iterator{
             .bytes = charSet,
             .i = 0,
@@ -46,7 +49,6 @@ pub fn main() !void {
         while (it.nextCodepoint()) |codepoint| {
             try state.fontCharset.append(@intCast(codepoint));
         }
-        state.allocator.free(charSet);
     }
 
     const windowConfig = rl.ConfigFlags{
@@ -55,12 +57,12 @@ pub fn main() !void {
         .window_transparent = false,
         .window_undecorated = true,
         .vsync_hint = false,
-        .msaa_4x_hint = true,
-        .window_highdpi = false, // raylib's hidpi has a bug when minimizing window
+        .msaa_4x_hint = true, // disabling causes flickering due to raylib's double-buffer approach and our current optimizations
+        .window_highdpi = false, // raylib's hidpi has a bug when minimizing window, causes a mismatch between expected window size and actual window size
         .interlaced_hint = true,
     };
 
-    { // Set raylib window flags
+    { // ---- Set raylib window flags ----
         rl.setConfigFlags(windowConfig);
         rl.setTargetFPS(constants.targetFpsHigh);
 
@@ -83,45 +85,28 @@ pub fn main() !void {
     iconTexture.width = @intFromFloat(@as(f32, @floatFromInt(constants.topBarHeight)) / 1.25);
     rl.setTextureFilter(iconTexture, .bilinear);
 
-    { // Load fonts
-        if (rl.loadFontEx(
-            "resources/fonts/CascadiaMono.ttf",
-            64,
-            state.fontCharset.items,
-        )) |font| {
-            state.codeFont = font;
-        } else |err| {
-            std.log.err("Failed to load font CascadiaMono.ttf Error: {any}", .{err});
-            return;
-        }
-
-        if (rl.loadFontEx(
-            "resources/fonts/RobotoMono.ttf",
-            64,
-            state.fontCharset.items,
-        )) |font| {
-            state.uiFont = font;
-        } else |err| {
-            std.log.err("Failed to load font RobotoMono.ttf Error: {any}", .{err});
-            return;
-        }
-
+    { // ---- Load fonts ----
+        state.codeFont = try rl.loadFontEx("resources/fonts/CascadiaMono.ttf", 64, state.fontCharset.items);
+        state.uiFont = try rl.loadFontEx("resources/fonts/RobotoMono.ttf", 64, state.fontCharset.items);
         rl.setTextureFilter(state.codeFont.texture, .bilinear);
         rl.setTextureFilter(state.uiFont.texture, .bilinear);
     }
 
-    // Temporary, compile regexes
+    // ---- Compile RegExs ----
     {
         var i: u64 = 0;
         while (i < state.zigStyles.len) : (i += 1) {
             var style = &state.zigStyles[i];
-            style.regex = try regex.compileRegex(state.allocator, style.expr);
+            style.regex = try regex.compileRegex(
+                state.allocator,
+                style.expr,
+            );
         }
     }
 
-    // Main loop
+    // ---- Main loop ----
     while (!rl.windowShouldClose()) : (state.frameCount +%= 1) {
-        { // Low CPU usage modes
+        { // ---- Low CPU usage modes ----
             if (rl.isWindowHidden()) {
                 rl.waitTime(0.2);
                 continue;
@@ -137,10 +122,10 @@ pub fn main() !void {
         rl.beginDrawing();
         defer rl.endDrawing();
 
-        { // Poll state changes
+        { // ---- Poll state changes ----
 
             // Refresh frames will allways trigger a full redraw of the screen.
-            const isRefreshFrame = state.frameCount % 60 == 0;
+            const isRefreshFrame = (state.frameCount & (state.forceRefreshIntervalFrames - 1)) == 0;
 
             state.shouldRedraw = .{
                 .topBar = state.shouldRedrawNext.topBar or isRefreshFrame,
@@ -170,13 +155,9 @@ pub fn main() !void {
             state.mouseWheelMove = rl.getMouseWheelMoveV();
 
             state.prevMousePosition = state.mousePosition;
-            state.mousePosition = rl.getMousePosition();
-
             state.prevMouseScreenPosition = state.mouseScreenPosition;
-            state.mouseScreenPosition = rl.Vector2{
-                .x = @round(state.windowPosition.x + state.mousePosition.x),
-                .y = @round(state.windowPosition.y + state.mousePosition.y),
-            };
+
+            mouse.getMousePosition();
 
             state.prevMouseLeftClick = state.mouseLeftClick;
             state.mouseLeftClick = rl.isMouseButtonDown(.left);
@@ -200,7 +181,7 @@ pub fn main() !void {
             }
         }
 
-        { // Draw text rect
+        { // ---- Draw text rect ----
             const codeRect = types.Recti32{
                 .x = 199,
                 .y = (constants.topBarHeight * 2) - 2,
@@ -217,15 +198,16 @@ pub fn main() !void {
                 // Redraws text only if user input or another part of
                 // the program triggers a redraw
                 if (stateChanged or state.shouldRedraw.textEditor) {
-                    try editor.drawEditorBackground(codeRect);
+                    state.shouldRedraw.fileTabs = true;
+                    editor.drawEditorBackground(codeRect);
                     try editor.drawFileContents(f, codeRect);
                 }
             } else if (state.shouldRedraw.textEditor) {
-                try editor.drawEditorBackground(codeRect);
+                editor.drawEditorBackground(codeRect);
             }
         }
 
-        { // Draw file tabs
+        { // ---- Draw file tabs ----
             const fileTabsRect = types.Recti32{
                 .x = 199,
                 .y = constants.topBarHeight - 1,
@@ -289,7 +271,6 @@ pub fn main() !void {
                         i,
                         &file.displayFile, // Displays file with index i
                     );
-
                     offset += tabWidth - 1;
 
                     button.drawButtonArg(
@@ -308,14 +289,13 @@ pub fn main() !void {
                         i,
                         &file.removeFile, // Remove file with index i
                     );
-
                     offset += constants.topBarHeight - 1;
                     i += 1;
                 }
             }
         }
 
-        { // Draw side bar
+        { // ---- Draw side bar ----
             const sideBarRect = types.Recti32{
                 .x = 0,
                 .y = 39,
@@ -343,7 +323,7 @@ pub fn main() !void {
             );
         }
 
-        { // Draw debug infos
+        { // ---- Draw debug infos ----
             const fps = rl.getFPS();
 
             var fpsBuff: [32:0]u8 = undefined;
@@ -472,6 +452,25 @@ pub fn main() !void {
                 0,
                 rl.Color.white,
             );
+
+            if (state.openedFiles.items.len > 0) {
+                const filePtr = &state.openedFiles.items[state.currentlyDisplayedFileIdx];
+
+                var cachedBuff: [32:0]u8 = undefined;
+                _ = try std.fmt.bufPrintZ(&cachedBuff, "ReCach:{d}", .{filePtr.styleCache.cachedLinesNb});
+
+                rl.drawTextEx(
+                    state.uiFont,
+                    &cachedBuff,
+                    rl.Vector2{
+                        .x = 5.0,
+                        .y = @floatFromInt(constants.topBarHeight + 75),
+                    },
+                    15,
+                    0,
+                    rl.Color.white,
+                );
+            }
         }
 
         const topBarRect = types.Recti32{
@@ -481,7 +480,7 @@ pub fn main() !void {
             .height = constants.topBarHeight,
         };
 
-        { // Draw top bar
+        { // ---- Draw top bar ----
             const topBarRectPadding = types.Recti32{
                 .x = topBarRect.x - 10,
                 .y = topBarRect.y - 10,
@@ -581,7 +580,7 @@ pub fn main() !void {
                     "__",
                     22,
                     types.Recti32{
-                        .x = state.windowWidth - 149,
+                        .x = state.windowWidth - 148,
                         .y = 0,
                         .height = topBarRect.height,
                         .width = 50,
@@ -603,6 +602,7 @@ pub fn main() !void {
                 .height = topBarRect.height,
             };
 
+            // Debug window move handle
             // rl.drawRectangle(
             //     topBarMoveRect.x,
             //     topBarMoveRect.y,
@@ -611,7 +611,7 @@ pub fn main() !void {
             //     rl.Color.red,
             // );
 
-            if (mouse.isMouseInRect(topBarMoveRect) and mouse.isJustLeftClick()) {
+            if (mouse.isJustLeftClick() and mouse.isMouseInRect(topBarMoveRect)) {
                 std.log.info("Started dragging.", .{});
                 state.movingWindow = true;
                 state.windowDragOrigin = state.mouseScreenPosition; // Store initial mouse position
@@ -624,15 +624,15 @@ pub fn main() !void {
                 state.movingWindow = false;
             }
 
-            // Needs fps cap for moving the window around
-            // Removing it causes weird jitterness that gets worse with higher
-            // refresh rates.
-            // I honestly have no idea why this happens but it starts around 80FPS
-            const refreshFrame = state.currentTargetFps <= 60 or
-                state.frameCount % @as(u64, @intCast(@divTrunc(state.currentTargetFps, 60))) == 0;
+            if (state.movingWindow) {
+                // Needs fps cap for moving the window around
+                // Removing it causes weird jitterness that gets worse with higher
+                // refresh rates.
+                // I honestly have no idea why this happens but it starts around 80FPS
+                const refreshFrame = state.currentTargetFps <= 60 or
+                    state.frameCount % @as(u64, @intCast(@divTrunc(state.currentTargetFps, 60))) == 0;
 
-            if (refreshFrame) {
-                if (state.movingWindow) {
+                if (refreshFrame) {
                     const movedRight: f32 = state.mouseScreenPosition.x - state.windowDragOrigin.x;
                     const movedBottom: f32 = state.mouseScreenPosition.y - state.windowDragOrigin.y;
 
@@ -646,11 +646,10 @@ pub fn main() !void {
             }
         }
 
-        { // Draw top bar menus
+        { // ---- Draw top bar menu dropdowns ----
             const menuItems = switch (state.topBarMenuOpened) {
                 .None => null,
 
-                // X before menu item name means not implemented
                 .File => types.Menu{
                     .origin = .{ .x = constants.topBarHeight + 5, .y = constants.topBarHeight - 1 },
                     .items = @constCast(&[_]types.MenuItem{
@@ -701,7 +700,7 @@ pub fn main() !void {
             }
         }
 
-        { // Draw folder tree
+        { // ---- Draw folder tree ----
             if (state.openedDir) |dir| {
                 // TODO: Make recursive
                 for (dir.children.items) |_entry| {
@@ -711,12 +710,12 @@ pub fn main() !void {
             }
         }
 
-        if (state.targetFps != state.currentTargetFps) {
-            rl.setTargetFPS(state.targetFps);
-            state.currentTargetFps = state.targetFps;
+        { // ---- Handle state changes ----
+            if (state.targetFps != state.currentTargetFps) {
+                window.setTargetFps(state.targetFps);
+            }
+            mouse.setMouseCursor(state.pointerType);
         }
-
-        rl.setMouseCursor(state.pointerType);
     }
     window.closeWindow();
 }

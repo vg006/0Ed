@@ -6,6 +6,7 @@ const state = @import("global_state.zig");
 const types = @import("types.zig");
 const constants = @import("constants.zig");
 const mouse = @import("mouse.zig");
+const helper = @import("helper.zig");
 
 fn lineInSelection(cursor: types.CursorPosition, lineIdx: i32) bool {
     if (cursor.start.line == lineIdx) return true;
@@ -19,6 +20,7 @@ fn lineInSelection(cursor: types.CursorPosition, lineIdx: i32) bool {
 
 fn collapseSelection(file: *types.OpenedFile) !void {
     if (file.cursorPos.end) |cursorEnd| {
+
         // If selection is on same line, just remove range
         if (file.cursorPos.start.line == cursorEnd.line) {
             const line: *std.ArrayList(i32) = &file.lines.items[@intCast(cursorEnd.line)];
@@ -29,6 +31,8 @@ fn collapseSelection(file: *types.OpenedFile) !void {
                 &emptyList,
             );
             file.cursorPos.end = null;
+
+            file.styleCache.invalidateLine(@intCast(file.cursorPos.start.line));
             return;
         }
         // If selection is on two lines, remove end of first line, begining of
@@ -53,6 +57,8 @@ fn collapseSelection(file: *types.OpenedFile) !void {
             defer removedLine.deinit();
 
             file.cursorPos.end = null;
+
+            file.styleCache.invalidate();
             return;
         }
         // If selection is on >2 lines, remove end of first line, begining of
@@ -79,6 +85,8 @@ fn collapseSelection(file: *types.OpenedFile) !void {
                 defer removedLine.deinit();
             }
             file.cursorPos.end = null;
+
+            file.styleCache.invalidate();
             return;
         }
     } else {
@@ -110,14 +118,10 @@ pub fn handleFileInput(file: *types.OpenedFile) !bool {
         const key: types.KeyChar = state.inputBuffer.items[keyIdx];
         keyIdx -%= 1;
 
-        // Char is UTF8 and as such is stored as a codepoint (i32)
-        var char: i32 = 0;
-
         const cursorPos = file.cursorPos.start;
 
         // Key is non-control character, collapse selection and write to line
         if (key.char != 0) {
-            char = key.char;
             try collapseSelection(file);
 
             const editLine: usize = @intCast(file.cursorPos.start.line);
@@ -127,6 +131,9 @@ pub fn handleFileInput(file: *types.OpenedFile) !bool {
 
             try line.insert(editCol, key.char);
             file.cursorPos.start.column += 1;
+
+            // Invalidate styles cache
+            file.styleCache.invalidateLine(@intCast(file.cursorPos.start.line));
         }
         // Key is control character, handle special cases
         else {
@@ -200,6 +207,9 @@ pub fn handleFileInput(file: *types.OpenedFile) !bool {
                     .line = cursorPos.line + 1,
                     .column = 0,
                 };
+
+                // Invalidate styles cache
+                file.styleCache.invalidate();
             }
             // Is Backspace (leftward delete)
             else if (key.key == .backspace) {
@@ -228,6 +238,9 @@ pub fn handleFileInput(file: *types.OpenedFile) !bool {
                     _ = line.orderedRemove(cursorPosCol - 1);
                     file.cursorPos.start.column -= 1;
                 }
+
+                // Invalidate styles cache
+                file.styleCache.invalidate();
             }
         }
     }
@@ -239,15 +252,13 @@ pub fn handleMouseInput(file: *types.OpenedFile, codeRect: types.Recti32) !bool 
     var stateChanged = false;
 
     const previousCursorPos = file.cursorPos;
-
-    const scrollOffset: i32 = @intFromFloat(file.scroll.y);
-
     const codeRectLeftOffset: i32 = codeRect.x + constants.paddingSize + 80;
 
-    var textPos: rl.Vector2 = rl.Vector2{
-        .x = @floatFromInt(codeRectLeftOffset),
-        .y = 0.0,
+    var textPos = types.Vec2i32{
+        .x = codeRectLeftOffset,
+        .y = 0,
     };
+
     var lineRect: types.Recti32 = types.Recti32{
         .x = codeRect.x,
         .y = 0.0,
@@ -255,32 +266,28 @@ pub fn handleMouseInput(file: *types.OpenedFile, codeRect: types.Recti32) !bool 
         .width = codeRect.width,
     };
 
-    const scrolledTop: i32 = codeRect.y + scrollOffset + constants.paddingSize;
+    const scrolledTop: i32 = @as(i32, @intFromFloat(file.scroll.y)) + codeRect.y + constants.paddingSize;
 
-    const renderBoundTop: f32 = @floatFromInt(codeRect.y - constants.paddingSize);
-    const renderBoundBott: f32 = @floatFromInt(state.windowHeight + constants.paddingSize);
+    const renderBoundTop: i32 = codeRect.y - constants.paddingSize;
+    const renderBoundBott: i32 = state.windowHeight + constants.paddingSize;
 
-    const firstLineIdx: usize = @intFromFloat(@max(0, @ceil((renderBoundTop - @as(f32, @floatFromInt(scrolledTop))) / @as(f32, @floatFromInt(constants.lineHeight)))));
+    const firstLineIdx: usize = @intCast(@max(0, @divFloor((renderBoundTop - scrolledTop), constants.lineHeight)));
 
     var i: usize = firstLineIdx;
-
     while (i < file.lines.items.len) : (i += 1) {
         const idx: i32 = @intCast(i);
         const line: std.ArrayList(i32) = file.lines.items[i];
 
-        const yPos: f32 = @floatFromInt(scrolledTop + (idx * constants.lineHeight));
-
-        // Cap the amount of lines displayed to those visible
+        const yPos: i32 = scrolledTop + (idx * constants.lineHeight);
         if (yPos > renderBoundBott) break;
 
         textPos.y = yPos;
-        lineRect.y = @intFromFloat(yPos);
+        lineRect.y = yPos;
 
         // Handle cursor position change + range select
         if (mouse.isMouseInRect(lineRect) and !state.movingScrollBarY) {
-            const relativeX: f32 = state.mousePosition.x - textPos.x;
-            const colWidthF: f32 = @floatFromInt(constants.colWidth);
-            var approximateColumn: i32 = @intFromFloat(@round(relativeX / colWidthF));
+            const relativeX: i32 = state.mousePosi32.x - textPos.x;
+            var approximateColumn: i32 = @divFloor(relativeX, constants.colWidth);
 
             if (approximateColumn >= line.items.len) {
                 approximateColumn = @intCast(line.items.len);
@@ -301,7 +308,9 @@ pub fn handleMouseInput(file: *types.OpenedFile, codeRect: types.Recti32) !bool 
                     .end = null,
                     .dragOrigin = null,
                 };
-            } else if (mouse.isLeftClickDown()) {
+            }
+            // Handle selection
+            else if (mouse.isLeftClickDown()) {
                 if (file.cursorPos.end) |_| {} else {
                     file.cursorPos.dragOrigin = file.cursorPos.start;
                 }
@@ -345,10 +354,14 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
     }
 
     var arena = std.heap.ArenaAllocator.init(state.allocator);
-    const alloc = arena.allocator();
     defer arena.deinit();
 
-    var scrollOffset: i32 = @intFromFloat(file.scroll.y);
+    const alloc = arena.allocator();
+
+    var styleStack = std.ArrayList(types.MatchedStyle).init(alloc);
+    var flattenedStyleStack = std.ArrayList(types.MatchedColor).init(alloc);
+
+    const codeRectHeightF: f32 = @floatFromInt(codeRect.height);
 
     // TODO: Horizontal scrollbar handling
 
@@ -360,14 +373,12 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
         .height = codeRect.height,
     };
 
-    { //
+    { // ---- Handle Scrollbar Move ----
         const totalLinesSize: usize = file.lines.items.len * @as(usize, @intCast(constants.lineHeight)) + @as(usize, @intCast(codeRect.height)) - 20;
         const totalLinesSizeF: f32 = @floatFromInt(totalLinesSize);
 
         if (state.movingScrollBarY) {
-            const moveY: f32 = state.mousePosition.y - state.prevMousePosition.y;
-            const moveRelY: f32 = moveY / @as(f32, @floatFromInt(codeRect.height));
-            file.scroll.y -= totalLinesSizeF * moveRelY;
+            file.scroll.y -= totalLinesSizeF * (state.mousePosition.y - state.prevMousePosition.y) / codeRectHeightF;
 
             if (file.scroll.y > 0.0) {
                 file.scroll.y = 0.0;
@@ -376,12 +387,11 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
 
         // Cap the scroll depending on file size.
         // We do that regardless of scroll wheel move / scroll bar move
-        if (file.scroll.y < -totalLinesSizeF + @as(f32, @floatFromInt(codeRect.height - 10))) {
-            file.scroll.y = -totalLinesSizeF + @as(f32, @floatFromInt(codeRect.height - 10));
+        if (file.scroll.y < -totalLinesSizeF + codeRectHeightF - 10) {
+            file.scroll.y = -totalLinesSizeF + codeRectHeightF - 10;
         }
-        scrollOffset = @intFromFloat(file.scroll.y);
 
-        if (mouse.isMouseInRect(scrollBarTrackY) and mouse.isJustLeftClick()) {
+        if (mouse.isJustLeftClick() and mouse.isMouseInRect(scrollBarTrackY)) {
             state.movingScrollBarY = true;
         } else if (!mouse.isLeftClickDown()) {
             state.movingScrollBarY = false;
@@ -390,44 +400,43 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
 
     const codeRectLeftOffset: i32 = codeRect.x + constants.paddingSize + 80;
 
-    var lineNbPos: rl.Vector2 = rl.Vector2{
-        .x = @floatFromInt(codeRect.x + constants.paddingSize),
-        .y = 0.0,
+    var lineNbPos = types.Vec2i32{
+        .x = codeRect.x + constants.paddingSize,
+        .y = 0,
     };
-    var textPos: rl.Vector2 = rl.Vector2{
+    var textPos = rl.Vector2{
         .x = @floatFromInt(codeRectLeftOffset),
         .y = 0.0,
     };
-    var lineRect: types.Recti32 = types.Recti32{
+    var lineRect = types.Recti32{
         .x = codeRect.x,
         .y = 0.0,
         .height = constants.lineHeight,
         .width = codeRect.width,
     };
 
-    const scrolledTop: i32 = codeRect.y + scrollOffset + constants.paddingSize;
+    const scrolledTop: i32 = @as(i32, @intFromFloat(file.scroll.y)) + codeRect.y + constants.paddingSize;
 
-    const renderBoundTop: f32 = @floatFromInt(codeRect.y - constants.paddingSize);
-    const renderBoundBott: f32 = @floatFromInt(state.windowHeight + constants.paddingSize);
+    const renderBoundTop: i32 = codeRect.y - constants.paddingSize;
+    const renderBoundBott: i32 = state.windowHeight + constants.paddingSize;
 
-    const firstLineIdx: usize = @intFromFloat(@max(0, @ceil((renderBoundTop - @as(f32, @floatFromInt(scrolledTop))) / @as(f32, @floatFromInt(constants.lineHeight)))));
+    const firstLineIdx: usize = @intCast(@max(0, @divFloor((renderBoundTop - scrolledTop), constants.lineHeight)));
 
     //var renderedLines: i32 = 0;
     var i: usize = firstLineIdx;
-
     while (i < file.lines.items.len) : (i += 1) {
         const idx: i32 = @intCast(i);
         const line: std.ArrayList(i32) = file.lines.items[i];
 
-        const yPos: f32 = @floatFromInt(scrolledTop + (idx * constants.lineHeight));
-
+        const yPos: i32 = idx * constants.lineHeight + scrolledTop;
         if (yPos > renderBoundBott) break;
 
         //renderedLines += 1;
 
         lineNbPos.y = yPos;
-        textPos.y = yPos;
-        lineRect.y = @intFromFloat(yPos);
+        lineRect.y = yPos;
+        textPos.x = @floatFromInt(codeRectLeftOffset);
+        textPos.y = @floatFromInt(yPos);
 
         // Draw cursor if is present in line
         if (lineInSelection(file.cursorPos, idx)) {
@@ -473,124 +482,127 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
         rl.drawTextEx(
             state.codeFont,
             @ptrCast(&lineBuff),
-            lineNbPos,
+            helper.veci32ToRl(lineNbPos),
             constants.fontSize,
             0,
             constants.colorUiFont,
         );
 
-        // TODO: handle styles
+        // Check if styles of line are cached
+        const cached: *?std.ArrayList(types.MatchedColor) = &file.styleCache.stylesPerLines.items[i];
+        var flattenedStyleStackPtr = &flattenedStyleStack;
 
-        var styleStack = std.ArrayList(types.MatchedStyle).init(alloc);
-
-        for (state.zigStyles, 0..) |style, j| {
-            const matches = try regex.getMatchesCodepoint(
-                alloc,
-                style.regex.?,
-                line.items,
-            );
-
-            for (matches.items) |untypedMatch| {
-                const match: regex.ReMatch = untypedMatch;
-                try styleStack.append(.{
-                    .style = style,
-                    .priority = @intCast(j),
-                    .start = @intCast(match.start),
-                    .end = @intCast(match.end),
-                });
-            }
+        // If is cached, just subvert pointer to cached data
+        if (cached.*) |cachedStyles| {
+            flattenedStyleStackPtr = @constCast(&cachedStyles);
         }
+        // If is not cached
+        else {
+            // Match all styles in line
+            styleStack.clearRetainingCapacity();
 
-        var flattenedStyleStack = std.ArrayList(types.MatchedStyle).init(alloc);
+            for (state.zigStyles, 0..) |style, j| {
+                // TODO: Create a stack allocated version
+                const matches = try regex.getMatchesCodepoint(
+                    alloc,
+                    style.regex.?,
+                    line.items,
+                );
 
-        try flattenedStyleStack.append(.{
-            .style = null,
-            .priority = 999,
-            .start = 0,
-            .end = std.math.maxInt(i32),
-        });
-
-        var currentStyle: *types.MatchedStyle = &flattenedStyleStack.items[flattenedStyleStack.items.len - 1];
-
-        for (line.items, 0..) |c, j| {
-            _ = c;
-
-            for (styleStack.items) |untypedStyle| {
-                const style: types.MatchedStyle = untypedStyle;
-
-                // Higher priority style, end previous style and start new one.
-                if (style.priority < currentStyle.priority and style.start == @as(i32, @intCast(j))) {
-                    currentStyle.end = @as(i32, @intCast(j));
-                    try flattenedStyleStack.append(.{
-                        .style = style.style,
-                        .priority = style.priority,
-                        .start = @as(i32, @intCast(j)),
-                        .end = std.math.maxInt(i32),
+                for (matches.items) |_match| {
+                    const match: regex.ReMatch = _match;
+                    try styleStack.append(.{
+                        .style = style,
+                        .priority = j,
+                        .start = match.start,
+                        .end = match.end,
                     });
-                    currentStyle = &flattenedStyleStack.items[flattenedStyleStack.items.len - 1];
-                }
-                // Style match ended
-                else if (style.priority == currentStyle.priority and style.end == @as(i32, @intCast(j))) {
-                    currentStyle.end = @as(i32, @intCast(j));
-                    try flattenedStyleStack.append(.{
-                        .style = null,
-                        .priority = 999,
-                        .start = @as(i32, @intCast(j)),
-                        .end = std.math.maxInt(i32),
-                    });
-                    currentStyle = &flattenedStyleStack.items[flattenedStyleStack.items.len - 1];
                 }
             }
+
+            // Flatten all the matched styles based on priority
+            flattenedStyleStack.clearRetainingCapacity();
+
+            try flattenedStyleStack.append(.{
+                .color = .{ 0, 0, 0 },
+                .priority = std.math.maxInt(usize),
+                .start = 0,
+                .end = std.math.maxInt(usize), // Sentinel value
+            });
+            var currentStyle: *types.MatchedColor = &flattenedStyleStack.items[flattenedStyleStack.items.len - 1];
+
+            for (0..line.items.len) |j| {
+                for (styleStack.items) |_langStyle| {
+                    const langStyle: types.MatchedStyle = _langStyle;
+
+                    const color = getColorFromStyleName(langStyle.style.?.name);
+
+                    // Higher priority style, end previous style and start new one.
+                    if (langStyle.priority < currentStyle.priority and langStyle.start == j) {
+                        currentStyle.end = j;
+                        try flattenedStyleStack.append(.{
+                            .priority = langStyle.priority,
+                            .color = color,
+                            .start = j,
+                            .end = std.math.maxInt(usize),
+                        });
+                        currentStyle = &flattenedStyleStack.items[flattenedStyleStack.items.len - 1];
+                    }
+                    // Style match ended
+                    else if (langStyle.priority == currentStyle.priority and langStyle.end == j) {
+                        currentStyle.end = j;
+                        try flattenedStyleStack.append(.{
+                            .priority = std.math.maxInt(usize),
+                            .color = .{ 0, 0, 0 },
+                            .start = j,
+                            .end = std.math.maxInt(usize),
+                        });
+                        currentStyle = &flattenedStyleStack.items[flattenedStyleStack.items.len - 1];
+                    }
+                }
+            }
+            // Terminate current styling
+            currentStyle.end = line.items.len;
+
+            // Cache style
+            file.styleCache.stylesPerLines.items[i] = std.ArrayList(types.MatchedColor).init(state.allocator); // Lifetime longer than frame, do not use arena allocator.
+            try file.styleCache.stylesPerLines.items[i].?.appendSlice(flattenedStyleStack.items);
+            file.styleCache.cachedLinesNb += 1;
+            file.styleCache.valid = true;
         }
-        currentStyle.end = @intCast(line.items.len);
 
-        // Draws line as UTF8
-        // rl.drawTextCodepoints(
-        //     state.codeFont,
-        //     line.items,
-        //     textPos,
-        //     constants.fontSize,
-        //     0,
-        //     constants.colorCodeFont,
-        // );
+        var start: usize = 0;
+        var end: usize = 0;
+        var offset: usize = 0;
+        var color: rl.Color = undefined;
 
-        var offset: f32 = 0.0;
-
-        for (flattenedStyleStack.items) |untypedStyle| {
-            const style: types.MatchedStyle = untypedStyle;
-
-            var color: types.Rgb = undefined;
-            if (style.style) |nonNullStyle| {
-                color = getColorFromStyleName(nonNullStyle.name);
+        for (flattenedStyleStackPtr.items) |style| {
+            if (std.meta.eql(style.color, .{ 0, 0, 0 })) {
+                color = rl.Color.init(
+                    constants.colorCodeFont.r,
+                    constants.colorCodeFont.g,
+                    constants.colorCodeFont.b,
+                    255,
+                );
             } else {
-                color[0] = constants.colorCodeFont.r;
-                color[1] = constants.colorCodeFont.g;
-                color[2] = constants.colorCodeFont.b;
+                color = rl.Color.init(style.color[0], style.color[1], style.color[2], 255);
             }
 
-            const start: usize = @intCast(style.start);
-            const end: usize = @intCast(style.end);
-
-            var newTextPos = textPos;
-            newTextPos.x += offset;
-
-            const segmentColor = rl.Color.init(color[0], color[1], color[2], 255);
+            textPos.x += @floatFromInt(offset);
+            start = style.start;
+            end = style.end;
 
             rl.drawTextCodepoints(
                 state.codeFont,
                 line.items[start..end],
-                newTextPos,
+                textPos,
                 constants.fontSize,
                 0,
-                segmentColor,
+                color,
             );
-
-            offset += @floatFromInt((style.end - style.start) * 10);
+            offset = (style.end - style.start) * 10;
         }
     }
-
-    //std.debug.print("                         ", .{});
-    //std.debug.print("\rRendered lines: {d}", .{renderedLines});
 
     // TODO: Horizontal scrollbar
 
@@ -599,7 +611,6 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
     const linesLen: f32 = @floatFromInt(file.lines.items.len);
 
     const relLinePosition: f32 = firstLineF / linesLen;
-    const codeRectHeightF: f32 = @floatFromInt(codeRect.height);
 
     const scrollBarRect = types.Recti32{
         .x = codeRect.x + codeRect.width - 10,
@@ -639,7 +650,7 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
     //}
 }
 
-pub fn drawEditorBackground(codeRect: types.Recti32) !void {
+pub fn drawEditorBackground(codeRect: types.Recti32) void {
     if (mouse.isMouseInRect(codeRect)) {
         state.pointerType = .ibeam;
     }

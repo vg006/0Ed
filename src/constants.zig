@@ -5,6 +5,7 @@ pub const initialWindowHeight: i32 = 720;
 
 pub const targetFpsHigh: i32 = 2000;
 pub const targetFpsLow: i32 = 10;
+pub const forceRefreshIntervalMs: usize = 500;
 
 pub const scrollIncrement: f32 = 2.0;
 pub const scrollVelocityMultiplier: f32 = 1000.0;
