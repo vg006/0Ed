@@ -209,7 +209,7 @@ pub fn handleFileInput(file: *types.OpenedFile) !bool {
                 };
 
                 // Invalidate styles cache
-                file.styleCache.invalidate();
+                try file.styleCache.resize(file.lines.items.len);
             }
             // Is Backspace (leftward delete)
             else if (key.key == .backspace) {
@@ -232,6 +232,7 @@ pub fn handleFileInput(file: *types.OpenedFile) !bool {
                         .line = cursorPos.line - 1,
                         .column = prevLineEnd,
                     };
+                    try file.styleCache.resize(file.lines.items.len);
                 } else {
                     // Remove char at cursor pos
                     const line: *std.ArrayList(i32) = &file.lines.items[cursorPosLine];
@@ -248,7 +249,7 @@ pub fn handleFileInput(file: *types.OpenedFile) !bool {
 }
 
 // Was extracted from drawFileContents, might have some duplicate code
-pub fn handleMouseInput(file: *types.OpenedFile, codeRect: types.Recti32) !bool {
+pub fn handleMouseInput(file: *types.OpenedFile, codeRect: types.Recti32) bool {
     var stateChanged = false;
 
     const previousCursorPos = file.cursorPos;
@@ -345,6 +346,101 @@ pub fn handleMouseInput(file: *types.OpenedFile, codeRect: types.Recti32) !bool 
     return stateChanged;
 }
 
+pub fn handleScrollBarMove(linesNb: usize, scroll: *rl.Vector2, codeRect: types.Recti32) bool {
+    var stateChanged: bool = false;
+
+    const codeRectHeightF: f32 = @floatFromInt(codeRect.height);
+
+    // Handle scrollbar move before render
+    const scrollBarTrackY = types.Recti32{
+        .x = codeRect.x + codeRect.width - 10,
+        .y = codeRect.y,
+        .width = 10,
+        .height = codeRect.height,
+    };
+
+    // TODO: Horizontal scrollbar handling
+
+    const totalLinesSize: usize = linesNb * @as(usize, @intCast(constants.lineHeight)) + @as(usize, @intCast(codeRect.height)) - 20;
+    const totalLinesSizeF: f32 = @floatFromInt(totalLinesSize);
+
+    if (state.movingScrollBarY) {
+        scroll.y -= totalLinesSizeF * (state.mousePosition.y - state.prevMousePosition.y) / codeRectHeightF;
+
+        if (scroll.y > 0.0) {
+            scroll.y = 0.0;
+        } else {
+            stateChanged = true;
+        }
+    }
+
+    // Cap the scroll depending on file size.
+    // We do that regardless of scroll wheel move / scroll bar move
+    if (scroll.y < -totalLinesSizeF + codeRectHeightF - 10) {
+        scroll.y = -totalLinesSizeF + codeRectHeightF - 10;
+    }
+
+    if (mouse.isJustLeftClick() and mouse.isMouseInRect(scrollBarTrackY)) {
+        state.movingScrollBarY = true;
+    } else if (!mouse.isLeftClickDown()) {
+        state.movingScrollBarY = false;
+    }
+
+    return stateChanged;
+}
+
+pub fn drawScrollBars(linesNb: usize, scroll: *rl.Vector2, codeRect: types.Recti32) void {
+    // TODO: Draw horizontal scrollbar
+    const codeRectHeightF: f32 = @floatFromInt(codeRect.height);
+
+    const scrollBarTrackY = types.Recti32{
+        .x = codeRect.x + codeRect.width - 10,
+        .y = codeRect.y,
+        .width = 10,
+        .height = codeRect.height,
+    };
+
+    const scrolledTop: i32 = @as(i32, @intFromFloat(scroll.y)) + codeRect.y + constants.paddingSize;
+    const renderBoundTop: i32 = codeRect.y;
+    const firstLineIdx: usize = @intCast(@max(0, @divFloor((renderBoundTop - scrolledTop), constants.lineHeight)));
+
+    const firstLineF: f32 = @floatFromInt(firstLineIdx);
+    const linesLen: f32 = if (linesNb <= 1) 1.0 else @floatFromInt(linesNb - 1);
+    const relLinePosition: f32 = firstLineF / linesLen;
+    const absLinePosition: f32 = codeRectHeightF * relLinePosition;
+
+    const scrollBarRect = types.Recti32{
+        .x = codeRect.x + codeRect.width - 10,
+        .y = @divTrunc(codeRect.y, 2) + @as(i32, @intFromFloat(absLinePosition + ((relLinePosition * -constants.scrollBarHeightF) + (constants.scrollBarHeightF / 2.0)))),
+        .width = 10,
+        .height = constants.scrollBarHeight,
+    };
+
+    // Draw scrollbar track
+    rl.drawRectangle(
+        scrollBarTrackY.x,
+        scrollBarTrackY.y,
+        scrollBarTrackY.width,
+        scrollBarTrackY.height,
+        constants.colorBackground,
+    );
+    rl.drawRectangleLines(
+        scrollBarTrackY.x,
+        scrollBarTrackY.y,
+        scrollBarTrackY.width,
+        scrollBarTrackY.height,
+        constants.colorLines,
+    );
+    // Draw scrollbar thumb
+    rl.drawRectangle(
+        scrollBarRect.x,
+        scrollBarRect.y,
+        scrollBarRect.width,
+        scrollBarRect.height,
+        constants.colorLines,
+    );
+}
+
 pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void {
     //const startMics = std.time.microTimestamp();
     // TODO: implement find/replace
@@ -360,43 +456,6 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
 
     var styleStack = std.ArrayList(types.MatchedStyle).init(alloc);
     var flattenedStyleStack = std.ArrayList(types.MatchedColor).init(alloc);
-
-    const codeRectHeightF: f32 = @floatFromInt(codeRect.height);
-
-    // TODO: Horizontal scrollbar handling
-
-    // Handle scrollbar move before render
-    const scrollBarTrackY = types.Recti32{
-        .x = codeRect.x + codeRect.width - 10,
-        .y = codeRect.y,
-        .width = 10,
-        .height = codeRect.height,
-    };
-
-    { // ---- Handle Scrollbar Move ----
-        const totalLinesSize: usize = file.lines.items.len * @as(usize, @intCast(constants.lineHeight)) + @as(usize, @intCast(codeRect.height)) - 20;
-        const totalLinesSizeF: f32 = @floatFromInt(totalLinesSize);
-
-        if (state.movingScrollBarY) {
-            file.scroll.y -= totalLinesSizeF * (state.mousePosition.y - state.prevMousePosition.y) / codeRectHeightF;
-
-            if (file.scroll.y > 0.0) {
-                file.scroll.y = 0.0;
-            }
-        }
-
-        // Cap the scroll depending on file size.
-        // We do that regardless of scroll wheel move / scroll bar move
-        if (file.scroll.y < -totalLinesSizeF + codeRectHeightF - 10) {
-            file.scroll.y = -totalLinesSizeF + codeRectHeightF - 10;
-        }
-
-        if (mouse.isJustLeftClick() and mouse.isMouseInRect(scrollBarTrackY)) {
-            state.movingScrollBarY = true;
-        } else if (!mouse.isLeftClickDown()) {
-            state.movingScrollBarY = false;
-        }
-    }
 
     const codeRectLeftOffset: i32 = codeRect.x + constants.paddingSize + 80;
 
@@ -531,6 +590,9 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
             });
             var currentStyle: *types.MatchedColor = &flattenedStyleStack.items[flattenedStyleStack.items.len - 1];
 
+            // Turns the stack of styles into a flat array where each style does
+            // not overlap another. Higher priority styles cut and destroy
+            // others on overlap.
             for (0..line.items.len) |j| {
                 for (styleStack.items) |_langStyle| {
                     const langStyle: types.MatchedStyle = _langStyle;
@@ -564,7 +626,7 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
             // Terminate current styling
             currentStyle.end = line.items.len;
 
-            // Cache style
+            // Cache styles of line
             file.styleCache.stylesPerLines.items[i] = std.ArrayList(types.MatchedColor).init(state.allocator); // Lifetime longer than frame, do not use arena allocator.
             try file.styleCache.stylesPerLines.items[i].?.appendSlice(flattenedStyleStack.items);
             file.styleCache.cachedLinesNb += 1;
@@ -603,45 +665,6 @@ pub fn drawFileContents(file: *types.OpenedFile, codeRect: types.Recti32) !void 
             offset = (style.end - style.start) * 10;
         }
     }
-
-    // TODO: Horizontal scrollbar
-
-    // Vertical scrollbar drawing
-    const firstLineF: f32 = @floatFromInt(firstLineIdx);
-    const linesLen: f32 = @floatFromInt(file.lines.items.len);
-
-    const relLinePosition: f32 = firstLineF / linesLen;
-
-    const scrollBarRect = types.Recti32{
-        .x = codeRect.x + codeRect.width - 10,
-        .y = @divTrunc(codeRect.y, 2) + @as(i32, @intFromFloat((codeRectHeightF * relLinePosition) + ((relLinePosition * -constants.scrollBarHeightF) + (constants.scrollBarHeightF / 2.0)))),
-        .width = 10,
-        .height = constants.scrollBarHeight,
-    };
-
-    // Draw scrollbar track
-    rl.drawRectangle(
-        scrollBarTrackY.x,
-        scrollBarTrackY.y,
-        scrollBarTrackY.width,
-        scrollBarTrackY.height,
-        constants.colorBackground,
-    );
-    rl.drawRectangleLines(
-        scrollBarTrackY.x,
-        scrollBarTrackY.y,
-        scrollBarTrackY.width,
-        scrollBarTrackY.height,
-        constants.colorLines,
-    );
-    // Draw scrollbar thumb
-    rl.drawRectangle(
-        scrollBarRect.x,
-        scrollBarRect.y,
-        scrollBarRect.width,
-        scrollBarRect.height,
-        constants.colorLines,
-    );
 
     //const timeSpent = std.time.microTimestamp() - startMics;
     //if (timeSpent > 1000) {

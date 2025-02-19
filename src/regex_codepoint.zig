@@ -36,7 +36,7 @@ pub const Regex = struct {
     pub fn deinit(self: *const Regex) void {
         if (self.children) |c| {
             for (c.items) |re| {
-                re.free();
+                re.deinit();
             }
             c.deinit();
         }

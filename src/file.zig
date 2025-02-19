@@ -42,10 +42,7 @@ pub fn openFolderDialog() void {
 /// Usually called by procedures inside the `file.zig` file.
 pub fn addOpenedFile(file: types.OpenedFile) void {
     if (state.openedFiles.append(file)) |_| {
-        state.currentlyDisplayedFileIdx = state.openedFiles.items.len - 1;
-
-        state.shouldRedrawNext.fileTabs = true;
-        state.shouldRedrawNext.textEditor = true;
+        displayFile(state.openedFiles.items.len - 1);
     } else |err| {
         std.log.err("Error with addOpenedFile: {any}", .{err});
     }
@@ -57,6 +54,7 @@ pub fn displayFile(index: usize) void {
     if (index >= state.openedFiles.items.len) return;
     state.currentlyDisplayedFileIdx = index;
 
+    state.currentDisplayedUi = .Editor;
     state.shouldRedrawNext.fileTabs = true;
     state.shouldRedrawNext.textEditor = true;
 }
@@ -75,8 +73,8 @@ pub fn removeFile(index: usize) void {
 
     state.allocator.free(file.name);
 
-    if (file.path) |nonNullPath| {
-        state.allocator.free(nonNullPath);
+    if (file.path) |_| {
+        state.allocator.free(file.path.?);
     }
 
     for (file.lines.items) |_line| {
@@ -84,6 +82,8 @@ pub fn removeFile(index: usize) void {
         line.deinit();
     }
     file.lines.deinit();
+
+    file.styleCache.deinit();
 
     state.shouldRedrawNext.fileTabs = true;
     state.shouldRedrawNext.textEditor = true;
@@ -105,11 +105,13 @@ pub fn removeAllFiles() void {
 fn writeFile(file: *types.OpenedFile) !void {
 
     // TODO: Display modals in case of error.
-    if (file.path == null) return;
+    if (file.path == null) {
+        std.log.err("Could not save file, path to file is null.", .{});
+    }
 
-    const maybeFile = std.fs.cwd().openFile(
+    const maybeFile = std.fs.cwd().createFile(
         file.path.?,
-        std.fs.File.OpenFlags{ .mode = .write_only },
+        std.fs.File.CreateFlags{},
     );
 
     var f: std.fs.File = undefined;
@@ -121,6 +123,9 @@ fn writeFile(file: *types.OpenedFile) !void {
         return error.OpenError;
     }
     defer f.close();
+
+    try f.seekTo(0);
+    _ = try f.write("");
 
     var bufWriter = std.io.bufferedWriter(f.writer());
 
@@ -135,6 +140,7 @@ fn writeFile(file: *types.OpenedFile) !void {
     }
 
     try bufWriter.flush();
+    std.log.info("Saved file: {s}", .{file.path.?});
 }
 
 /// Displays OS specific "Save As" dialog and writes currently displayed file to disk.
@@ -145,13 +151,30 @@ pub fn saveFileAs() void {
     // TODO: Display modals in case of error.
     if (state.openedFiles.items.len == 0) return;
 
-    var currentFile = state.openedFiles.items[state.currentlyDisplayedFileIdx];
+    var currentFile = &state.openedFiles.items[state.currentlyDisplayedFileIdx];
 
     if (nfd.saveFileDialog(null, null)) |path| {
-        currentFile.path = path;
-        writeFile(&currentFile) catch |err| {
-            std.log.err("Error with writeFile: {any}", .{err});
-        };
+        if (path) |nonNullPath| {
+            const pathSlice = @constCast(nonNullPath);
+            currentFile.path = pathSlice;
+            currentFile.path.?.len = pathSlice.len;
+
+            const previousFileName = currentFile.name;
+            state.allocator.free(previousFileName);
+
+            const newName = state.allocator.dupeZ(u8, std.fs.path.basename(nonNullPath[0..nonNullPath.len])) catch |err| {
+                std.log.err("Error with saveFileDialog: {any}", .{err});
+                return;
+            };
+
+            currentFile.name = newName;
+
+            writeFile(currentFile) catch |err| {
+                std.log.err("Error with writeFile: {any}", .{err});
+            };
+        } else {
+            return;
+        }
     } else |err| {
         std.log.err("Error with saveFileDialog: {any}", .{err});
     }
@@ -187,7 +210,7 @@ pub fn newFile() void {
     var openedFile = types.OpenedFile{
         .path = null,
         .name = nameZ,
-        .lines = std.ArrayList(std.ArrayList(i32)).init(state.allocator),
+        .lines = types.UtfLineList.init(state.allocator),
         .styleCache = .{
             .stylesPerLines = std.ArrayList(?std.ArrayList(types.MatchedColor)).init(state.allocator),
             .cachedLinesNb = 0,
@@ -229,7 +252,7 @@ pub fn openFile(filePath: []const u8) error{ OpenError, ReadError, OutOfMemory }
     var openedFile = types.OpenedFile{
         .path = filePathZ,
         .name = fileNameZ,
-        .lines = std.ArrayList(std.ArrayList(i32)).init(state.allocator),
+        .lines = types.UtfLineList.init(state.allocator),
         .styleCache = .{
             .stylesPerLines = std.ArrayList(?std.ArrayList(types.MatchedColor)).init(state.allocator),
             .cachedLinesNb = 0,
@@ -336,8 +359,8 @@ fn openFolderRecursive(path: [:0]const u8) !types.FileSystemTree {
                 try children.append(try openFolderRecursive(fullPathZ));
                 state.allocator.free(fullPathZ);
             } else {
-                const nameZ: [:0]const u8 = try state.allocator.dupeZ(u8, nonNullEntry.name);
-                const fullPathZ: [:0]const u8 = try std.fs.path.joinZ(state.allocator, &[_][]const u8{ path, nonNullEntry.name });
+                const nameZ = try state.allocator.dupeZ(u8, nonNullEntry.name);
+                const fullPathZ = try std.fs.path.joinZ(state.allocator, &[_][]const u8{ path, nonNullEntry.name });
 
                 try children.append(.{
                     .name = nameZ,

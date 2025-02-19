@@ -2,6 +2,8 @@ const rl = @import("raylib");
 
 const state = @import("global_state.zig");
 const types = @import("types.zig");
+const helper = @import("helper.zig");
+const constants = @import("constants.zig");
 
 pub fn getMousePosition() void {
     state.mousePosition = rl.getMousePosition();
@@ -42,4 +44,14 @@ pub inline fn isRightClickDown() bool {
 
 pub inline fn setMouseCursor(cursor: rl.MouseCursor) void {
     rl.setMouseCursor(cursor);
+}
+
+pub fn handleScroll(scroll: *rl.Vector2) bool {
+    if (!helper.floatEq(state.scrollVelocityY, 0, 0.01)) {
+        scroll.y += state.scrollVelocityY * constants.scrollIncrement;
+        if (scroll.y > 0.0) scroll.y = 0.0;
+        if (scroll.x > 0.0) scroll.x = 0.0;
+        return true;
+    }
+    return false;
 }

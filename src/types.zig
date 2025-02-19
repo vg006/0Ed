@@ -8,6 +8,12 @@ pub const ShouldRedraw = struct {
     sideBar: bool,
     fileTabs: bool,
     textEditor: bool,
+    terminal: bool,
+};
+
+pub const DisplayedUi = enum {
+    Editor,
+    Terminal,
 };
 
 pub const Recti32 = struct {
@@ -28,6 +34,8 @@ pub const TextPos = struct {
 };
 
 pub const CodePoint = i32;
+pub const UtfLine = std.ArrayList(CodePoint);
+pub const UtfLineList = std.ArrayList(UtfLine);
 
 pub const KeyChar = struct {
     key: rl.KeyboardKey,
@@ -141,7 +149,11 @@ pub const StyleCache = struct {
             nonNullLine.deinit();
         }
         self.stylesPerLines.items[index] = null;
+
         self.cachedLinesNb -%= 1;
+        if (self.cachedLinesNb == std.math.maxInt(usize)) {
+            self.cachedLinesNb = 0;
+        }
     }
 
     pub fn deinit(self: *StyleCache) void {
@@ -155,9 +167,9 @@ pub const StyleCache = struct {
 };
 
 pub const OpenedFile = struct {
-    name: [:0]const u8,
-    path: ?[:0]const u8,
-    lines: std.ArrayList(std.ArrayList(CodePoint)),
+    name: [:0]u8,
+    path: ?[:0]u8,
+    lines: UtfLineList,
     styleCache: StyleCache,
     cursorPos: CursorPosition,
     scroll: rl.Vector2,

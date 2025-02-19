@@ -7,9 +7,13 @@ const types = @import("types.zig");
 /// depending on compilation mode (Debug/Release)
 pub var allocator: std.mem.Allocator = undefined;
 
+pub const debugAllocatorConf: std.heap.DebugAllocatorConfig = .{
+    .verbose_log = true,
+};
+
 /// Will always be undefined if compilation mode is not in Release.
 /// Always check for compilation mode using `builtin.mode` before accessing.
-pub var debugAllocator: std.heap.DebugAllocator(.{}) = undefined;
+pub var debugAllocator: std.heap.DebugAllocator(debugAllocatorConf) = undefined;
 
 /// Modifiable struct indicating the need to redraw a part of the UI.
 /// Setting a field to true does not guarantee a redraw if the drawing logic
@@ -21,6 +25,7 @@ pub var shouldRedraw: types.ShouldRedraw = .{
     .sideBar = false,
     .fileTabs = false,
     .textEditor = false,
+    .terminal = false,
 };
 
 /// Modifiable struct indicating the need to redraw a part of the UI next frame.
@@ -29,7 +34,10 @@ pub var shouldRedrawNext: types.ShouldRedraw = .{
     .sideBar = false,
     .fileTabs = false,
     .textEditor = false,
+    .terminal = false,
 };
+
+pub var currentDisplayedUi: types.DisplayedUi = .Terminal;
 
 /// Time spent drawing previous frame
 pub var deltaTime: f32 = 0.0;
@@ -124,6 +132,13 @@ pub var topBarMenuOpened: types.TopBarMenu = .None;
 /// Modifiable var indicating which mouse pointer should be used.
 pub var pointerType: rl.MouseCursor = .default;
 
+/// Apparently calling rl.setMouseCursor multiple time causes a memory leak
+/// yikes.
+/// This is just a way to reduce these calls, but yes the memory leak is well
+/// and alive.
+// TODO: fix raylib?
+pub var previousPointerType: rl.MouseCursor = .default;
+
 pub var codeFont: rl.Font = undefined;
 pub var uiFont: rl.Font = undefined;
 
@@ -207,7 +222,7 @@ pub var zigStyles = [_]types.Style{
     },
     .{
         .name = "operators",
-        .expr = "=|-|\\+|\\*|\\/|>|<|&|!|?|\\||%",
+        .expr = "=|-|\\+|\\*|\\/|>|<|&|!|\\?|\\||%",
         .regex = null,
     },
     .{
@@ -231,3 +246,41 @@ pub var zigStyles = [_]types.Style{
         .regex = null,
     },
 };
+
+// TODO: Move these to own struct to allow multiple
+
+/// Process of the currently running terminal emulator.
+/// Created by `terminal.createTerminalProcess()`
+/// Do not modify.
+pub var terminalProcess: std.process.Child = undefined;
+
+/// Read buffer for the terminal process' stdout.
+/// Do not use when `terminalStdoutBuffMutex` is locked.
+pub var terminalStdoutBuff: std.ArrayList(u8) = undefined;
+/// Read buffer for the terminal process' stderr.
+/// Do not use when `terminalStderrBuffMutex` is locked.
+pub var terminalStderrBuff: std.ArrayList(u8) = undefined;
+
+/// Mutex for safely accessing `terminalStdoutBuff`
+pub var terminalStdoutBuffMutex = std.Thread.Mutex{};
+/// Mutex for safely accessing `terminalStderrBuff`
+pub var terminalStderrBuffMutex = std.Thread.Mutex{};
+
+pub var shouldEndAllThreads = false;
+
+/// Thread listening to the stdout of the terminal process
+/// Lifetime is same as program
+pub var terminalStdoutThread: std.Thread = undefined;
+/// Thread listening to the stderr of the terminal process
+/// Lifetime is same as program
+pub var terminalStderrThread: std.Thread = undefined;
+
+/// Similar to how files are handled, however lines are terminated unless new
+/// output should be appended to the last line.
+pub var terminalBuffer: types.UtfLineList = undefined;
+
+/// Buffer for user input in terminal.
+/// Do not modify without user input.
+pub var terminalUserInputBuffer: types.UtfLine = undefined;
+
+pub var terminalScroll: rl.Vector2 = .{ .x = 0, .y = 0 };
